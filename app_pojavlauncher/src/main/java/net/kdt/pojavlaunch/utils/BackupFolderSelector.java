@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.Stack;
 
@@ -33,7 +34,7 @@ public class BackupFolderSelector {
     public static void showSelector(final Activity activity) {
         if (activity == null) return;
 
-        final Set<String> selectedPaths = new HashSet<String>(BackupManager.getSelectedItems(activity));
+        final Set<String> excludedPaths = new HashSet<String>(BackupManager.getExcludedItems(activity));
         final Stack<FolderNode> navStack = new Stack<FolderNode>();
 
         final FolderNode rootNode = buildRootNode(activity);
@@ -85,20 +86,20 @@ public class BackupFolderSelector {
         container.addView(actionBar);
         container.addView(listView);
 
-        final SelectorAdapter adapter = new SelectorAdapter(activity, navStack.peek().children, selectedPaths);
+        final SelectorAdapter adapter = new SelectorAdapter(activity, navStack.peek().children, excludedPaths);
         listView.setAdapter(adapter);
 
         final UIController controller = new UIController(activity, navStack, backBtn, pathView, adapter);
 
         backBtn.setOnClickListener(new BackBtnListener(navStack, controller));
-        selectAllBtn.setOnClickListener(new SelectAllBtnListener(navStack, selectedPaths, adapter));
-        deselectAllBtn.setOnClickListener(new DeselectAllBtnListener(navStack, selectedPaths, adapter));
+        selectAllBtn.setOnClickListener(new SelectAllBtnListener(navStack, excludedPaths, adapter));
+        deselectAllBtn.setOnClickListener(new DeselectAllBtnListener(navStack, excludedPaths, adapter));
         adapter.setOnNodeClickListener(new ItemClickListener(activity, navStack, controller));
 
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("Select Files & Folders to Backup");
         builder.setView(container);
-        builder.setPositiveButton("Save Selection", new SaveBtnListener(activity, selectedPaths));
+        builder.setPositiveButton("Save Selection", new SaveBtnListener(activity, excludedPaths));
         builder.setNegativeButton("Cancel", null);
         builder.show();
     }
@@ -147,11 +148,11 @@ public class BackupFolderSelector {
 
     public static class SelectAllBtnListener implements View.OnClickListener {
         Stack<FolderNode> navStack;
-        Set<String> selectedPaths;
+        Set<String> excludedPaths;
         SelectorAdapter adapter;
-        public SelectAllBtnListener(Stack<FolderNode> navStack, Set<String> selectedPaths, SelectorAdapter adapter) {
+        public SelectAllBtnListener(Stack<FolderNode> navStack, Set<String> excludedPaths, SelectorAdapter adapter) {
             this.navStack = navStack;
-            this.selectedPaths = selectedPaths;
+            this.excludedPaths = excludedPaths;
             this.adapter = adapter;
         }
         @Override
@@ -162,7 +163,7 @@ public class BackupFolderSelector {
             }
             if (current.children != null) {
                 for (FolderNode child : current.children) {
-                    checkNode(child, selectedPaths);
+                    checkNode(child, excludedPaths);
                 }
             }
             adapter.notifyDataSetChanged();
@@ -171,11 +172,11 @@ public class BackupFolderSelector {
 
     public static class DeselectAllBtnListener implements View.OnClickListener {
         Stack<FolderNode> navStack;
-        Set<String> selectedPaths;
+        Set<String> excludedPaths;
         SelectorAdapter adapter;
-        public DeselectAllBtnListener(Stack<FolderNode> navStack, Set<String> selectedPaths, SelectorAdapter adapter) {
+        public DeselectAllBtnListener(Stack<FolderNode> navStack, Set<String> excludedPaths, SelectorAdapter adapter) {
             this.navStack = navStack;
-            this.selectedPaths = selectedPaths;
+            this.excludedPaths = excludedPaths;
             this.adapter = adapter;
         }
         @Override
@@ -186,7 +187,7 @@ public class BackupFolderSelector {
             }
             if (current.children != null) {
                 for (FolderNode child : current.children) {
-                    uncheckNode(child, selectedPaths);
+                    uncheckNode(child, excludedPaths);
                 }
             }
             adapter.notifyDataSetChanged();
@@ -220,78 +221,70 @@ public class BackupFolderSelector {
 
     public static class SaveBtnListener implements DialogInterface.OnClickListener {
         Activity activity;
-        Set<String> selectedPaths;
-        public SaveBtnListener(Activity activity, Set<String> selectedPaths) {
+        Set<String> excludedPaths;
+        public SaveBtnListener(Activity activity, Set<String> excludedPaths) {
             this.activity = activity;
-            this.selectedPaths = selectedPaths;
+            this.excludedPaths = excludedPaths;
         }
         @Override
         public void onClick(DialogInterface dialog, int which) {
-            BackupManager.saveSelectedItems(activity, selectedPaths);
-            Toast.makeText(activity, "Selection saved (" + selectedPaths.size() + " items chosen)", Toast.LENGTH_SHORT).show();
+            BackupManager.saveExcludedItems(activity, excludedPaths);
+            Toast.makeText(activity, "Selection saved! All current and future files are auto-selected.", Toast.LENGTH_SHORT).show();
         }
     }
 
-    public static boolean isNodeChecked(FolderNode node, Set<String> selected) {
+    public static boolean isNodeChecked(FolderNode node, Set<String> excludedPaths) {
         if (node == null) return false;
-        if (selected.contains(node.relPath)) return true;
-        FolderNode p = node.parent;
-        while (p != null) {
-            if (selected.contains(p.relPath)) return true;
-            p = p.parent;
-        }
-        return false;
+        return isPathSelected(node.relPath, excludedPaths);
     }
 
-    public static void checkNode(FolderNode node, Set<String> selected) {
-        if (node == null) return;
-        selected.add(node.relPath);
-        if (node.children != null) {
-            for (FolderNode child : node.children) {
-                checkNode(child, selected);
-            }
+    public static boolean isPathSelected(String relPath, Set<String> excludedPaths) {
+        if (relPath == null || relPath.isEmpty()) return true;
+        if (excludedPaths == null || excludedPaths.isEmpty()) return true;
+
+        if (excludedPaths.contains(relPath)) return false;
+
+        int idx = relPath.lastIndexOf("/");
+        while (idx != -1) {
+            String parent = relPath.substring(0, idx);
+            if (excludedPaths.contains(parent)) return false;
+            idx = parent.lastIndexOf("/");
         }
-        checkParentRollup(node.parent, selected);
+        return true;
     }
 
-    public static void uncheckNode(FolderNode node, Set<String> selected) {
+    public static void checkNode(FolderNode node, Set<String> excludedPaths) {
         if (node == null) return;
-        selected.remove(node.relPath);
+        excludedPaths.remove(node.relPath);
         if (node.children != null) {
             for (FolderNode child : node.children) {
-                uncheckNode(child, selected);
+                checkNode(child, excludedPaths);
             }
         }
+        // If parent was excluded, expand parent into siblings
         FolderNode p = node.parent;
-        FolderNode childToExclude = node;
+        FolderNode childToCheck = node;
         while (p != null) {
-            if (selected.remove(p.relPath)) {
+            if (excludedPaths.remove(p.relPath)) {
                 if (p.children != null) {
                     for (FolderNode sibling : p.children) {
-                        if (!sibling.relPath.equals(childToExclude.relPath)) {
-                            checkNode(sibling, selected);
+                        if (!sibling.relPath.equals(childToCheck.relPath)) {
+                            uncheckNode(sibling, excludedPaths);
                         }
                     }
                 }
             }
-            childToExclude = p;
+            childToCheck = p;
             p = p.parent;
         }
     }
 
-    private static void checkParentRollup(FolderNode parent, Set<String> selected) {
-        if (parent == null || parent.relPath == null || parent.relPath.isEmpty()) return;
-        if (parent.children != null && !parent.children.isEmpty()) {
-            boolean allSelected = true;
-            for (FolderNode child : parent.children) {
-                if (!isNodeChecked(child, selected)) {
-                    allSelected = false;
-                    break;
-                }
-            }
-            if (allSelected) {
-                selected.add(parent.relPath);
-                checkParentRollup(parent.parent, selected);
+    public static void uncheckNode(FolderNode node, Set<String> excludedPaths) {
+        if (node == null) return;
+        excludedPaths.add(node.relPath);
+        if (node.children != null) {
+            for (FolderNode child : node.children) {
+                uncheckNode(child, excludedPaths);
             }
         }
     }
@@ -321,10 +314,14 @@ public class BackupFolderSelector {
             if (files != null) {
                 for (File f : files) {
                     String name = f.getName();
-                    if (name.equals(".cache")) continue;
+                    String rel = parentNode.relPath.isEmpty() ? name : parentNode.relPath + "/" + name;
+
+                    // Automatically skip temporary caches, logs, and .fabric
+                    if (BackupManager.isIgnoredCacheOrLog(rel)) {
+                        continue;
+                    }
 
                     boolean isDir = f.isDirectory();
-                    String rel = parentNode.relPath.isEmpty() ? name : parentNode.relPath + "/" + name;
                     String disp = parentNode.displayPath + (parentNode.displayPath.endsWith("/") ? "" : "/") + name;
                     long size = isDir ? 0 : f.length();
 
@@ -392,21 +389,21 @@ public class BackupFolderSelector {
 
     public static class RowCheckedListener implements CompoundButton.OnCheckedChangeListener {
         FolderNode node;
-        Set<String> selectedPaths;
+        Set<String> excludedPaths;
         SelectorAdapter adapter;
 
-        public RowCheckedListener(FolderNode node, Set<String> selectedPaths, SelectorAdapter adapter) {
+        public RowCheckedListener(FolderNode node, Set<String> excludedPaths, SelectorAdapter adapter) {
             this.node = node;
-            this.selectedPaths = selectedPaths;
+            this.excludedPaths = excludedPaths;
             this.adapter = adapter;
         }
 
         @Override
         public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
             if (isChecked) {
-                checkNode(node, selectedPaths);
+                checkNode(node, excludedPaths);
             } else {
-                uncheckNode(node, selectedPaths);
+                uncheckNode(node, excludedPaths);
             }
             adapter.notifyDataSetChanged();
         }
@@ -432,13 +429,13 @@ public class BackupFolderSelector {
     private static class SelectorAdapter extends BaseAdapter {
         private final Context context;
         private List<FolderNode> items;
-        private final Set<String> selectedPaths;
+        private final Set<String> excludedPaths;
         private NodeClickListener clickListener;
 
-        public SelectorAdapter(Context context, List<FolderNode> items, Set<String> selectedPaths) {
+        public SelectorAdapter(Context context, List<FolderNode> items, Set<String> excludedPaths) {
             this.context = context;
             this.items = items != null ? items : new ArrayList<FolderNode>();
-            this.selectedPaths = selectedPaths;
+            this.excludedPaths = excludedPaths;
         }
 
         public void updateItems(List<FolderNode> newItems) {
@@ -525,8 +522,8 @@ public class BackupFolderSelector {
             openBtn.setVisibility(node.isDir ? View.VISIBLE : View.GONE);
 
             cb.setOnCheckedChangeListener(null);
-            cb.setChecked(isNodeChecked(node, selectedPaths));
-            cb.setOnCheckedChangeListener(new RowCheckedListener(node, selectedPaths, this));
+            cb.setChecked(isNodeChecked(node, excludedPaths));
+            cb.setOnCheckedChangeListener(new RowCheckedListener(node, excludedPaths, this));
 
             RowClickListener clickListenerInstance = new RowClickListener(node, clickListener);
             openBtn.setOnClickListener(clickListenerInstance);

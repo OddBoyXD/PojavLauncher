@@ -43,41 +43,64 @@ public class BackupManager {
     public static final int REQUEST_IMPORT_BACKUP_ZIP = 42071;
 
     private static final String PREF_NAME = "pojav_backup_preferences";
-    private static final String KEY_SELECTED_ITEMS = "selected_backup_items";
+    private static final String KEY_EXCLUDED_ITEMS = "excluded_backup_items";
 
-    public static Set<String> getSelectedItems(Context context) {
+    public static Set<String> getExcludedItems(Context context) {
         SharedPreferences sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-        Set<String> set = sp.getStringSet(KEY_SELECTED_ITEMS, null);
+        Set<String> set = sp.getStringSet(KEY_EXCLUDED_ITEMS, null);
         if (set == null) {
-            set = new HashSet<String>();
-            File filesDir = null;
-            if (Tools.DIR_GAME_HOME != null) {
-                filesDir = new File(Tools.DIR_GAME_HOME);
-            }
-            if (filesDir == null || !filesDir.exists()) {
-                filesDir = context.getExternalFilesDir(null);
-            }
-            if (filesDir != null && filesDir.exists()) {
-                File[] list = filesDir.listFiles();
-                if (list != null) {
-                    for (File f : list) {
-                        if (!f.getName().equals(".cache")) {
-                            set.add(f.getName());
-                        }
-                    }
-                }
-            }
-            if (set.isEmpty()) {
-                set.add(".minecraft");
-                set.add("controlmap");
-            }
+            return new HashSet<String>();
         }
         return new HashSet<String>(set);
     }
 
-    public static void saveSelectedItems(Context context, Set<String> items) {
+    public static void saveExcludedItems(Context context, Set<String> items) {
         SharedPreferences sp = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
-        sp.edit().putStringSet(KEY_SELECTED_ITEMS, items).apply();
+        sp.edit().putStringSet(KEY_EXCLUDED_ITEMS, items).apply();
+    }
+
+    public static boolean isIgnoredCacheOrLog(String relPath) {
+        if (relPath == null || relPath.isEmpty()) return false;
+        String p = relPath.toLowerCase(Locale.US);
+
+        if (p.equals(".cache") || p.startsWith(".cache/") || p.contains("/.cache/") || p.endsWith("/.cache")) {
+            return true;
+        }
+        if (p.equals(".minecraft/.fabric") || p.startsWith(".minecraft/.fabric/") || p.contains("/.fabric/") || p.endsWith("/.fabric")) {
+            return true;
+        }
+        if (p.equals(".minecraft/logs") || p.startsWith(".minecraft/logs/") || p.contains("/logs/") || p.endsWith("/logs")) {
+            return true;
+        }
+        if (p.equals(".minecraft/crash-reports") || p.startsWith(".minecraft/crash-reports/") || p.contains("/crash-reports/")) {
+            return true;
+        }
+        if (p.equals(".minecraft/webcache2") || p.startsWith(".minecraft/webcache2/") || p.contains("/webcache2/")) {
+            return true;
+        }
+        if (p.equals("latestlog.txt") || p.endsWith("/latestlog.txt") || p.equals("latestcrash.txt") || p.endsWith("/latestcrash.txt")) {
+            return true;
+        }
+        if (p.endsWith(".log") || p.endsWith(".log.gz")) {
+            return true;
+        }
+
+        return false;
+    }
+
+    public static boolean isPathSelected(String relPath, Set<String> excludedPaths) {
+        if (relPath == null || relPath.isEmpty()) return true;
+        if (excludedPaths == null || excludedPaths.isEmpty()) return true;
+
+        if (excludedPaths.contains(relPath)) return false;
+
+        int idx = relPath.lastIndexOf("/");
+        while (idx != -1) {
+            String parent = relPath.substring(0, idx);
+            if (excludedPaths.contains(parent)) return false;
+            idx = parent.lastIndexOf("/");
+        }
+        return true;
     }
 
     public static class StoragePermissionListener implements DialogInterface.OnClickListener {
@@ -193,13 +216,13 @@ public class BackupManager {
     public static class ExportTask implements Runnable {
         Activity activity;
         Uri treeUri;
-        Set<String> selectedItems;
+        Set<String> excludedItems;
         ProgressDialog progressDialog;
 
-        public ExportTask(Activity activity, Uri treeUri, Set<String> selectedItems, ProgressDialog progressDialog) {
+        public ExportTask(Activity activity, Uri treeUri, Set<String> excludedItems, ProgressDialog progressDialog) {
             this.activity = activity;
             this.treeUri = treeUri;
-            this.selectedItems = selectedItems;
+            this.excludedItems = excludedItems;
             this.progressDialog = progressDialog;
         }
 
@@ -221,16 +244,12 @@ public class BackupManager {
                 final List<BackupEntry> entriesToZip = new ArrayList<BackupEntry>();
                 final Set<String> addedPaths = new HashSet<String>();
 
-                // 1. ALWAYS AUTOMATICALLY BACKUP ACCOUNTS
+                // 1. ALWAYS AUTOMATICALLY BACKUP ACCOUNTS (SINGLE CLEAN FOLDER: files/accounts/)
                 if (internalAccounts.exists()) {
                     File[] accs = internalAccounts.listFiles();
                     if (accs != null) {
                         for (File acc : accs) {
                             if (acc.isFile()) {
-                                String zipPath = "accounts/" + acc.getName();
-                                if (addedPaths.add(zipPath)) {
-                                    entriesToZip.add(new BackupEntry(acc, zipPath, false));
-                                }
                                 String filesAccPath = "files/accounts/" + acc.getName();
                                 if (addedPaths.add(filesAccPath)) {
                                     entriesToZip.add(new BackupEntry(acc, filesAccPath, false));
@@ -244,10 +263,6 @@ public class BackupManager {
                     if (accs != null) {
                         for (File acc : accs) {
                             if (acc.isFile()) {
-                                String zipPath = "accounts/" + acc.getName();
-                                if (addedPaths.add(zipPath)) {
-                                    entriesToZip.add(new BackupEntry(acc, zipPath, false));
-                                }
                                 String filesAccPath = "files/accounts/" + acc.getName();
                                 if (addedPaths.add(filesAccPath)) {
                                     entriesToZip.add(new BackupEntry(acc, filesAccPath, false));
@@ -257,16 +272,12 @@ public class BackupManager {
                     }
                 }
 
-                // 2. ALWAYS AUTOMATICALLY BACKUP SETTINGS & PREFERENCES
+                // 2. ALWAYS AUTOMATICALLY BACKUP SETTINGS & PREFERENCES (SINGLE CLEAN FOLDER: files/shared_prefs/)
                 if (sharedPrefsDir.exists()) {
                     File[] prefs = sharedPrefsDir.listFiles();
                     if (prefs != null) {
                         for (File pref : prefs) {
                             if (pref.isFile()) {
-                                String zipPath = "shared_prefs/" + pref.getName();
-                                if (addedPaths.add(zipPath)) {
-                                    entriesToZip.add(new BackupEntry(pref, zipPath, false));
-                                }
                                 String filesPrefPath = "files/shared_prefs/" + pref.getName();
                                 if (addedPaths.add(filesPrefPath)) {
                                     entriesToZip.add(new BackupEntry(pref, filesPrefPath, false));
@@ -276,9 +287,9 @@ public class BackupManager {
                     }
                 }
 
-                // 3. BACKUP SELECTED FILES & FOLDERS FROM filesDir (ALL INSIDE files/ FOLDER IN ZIP)
+                // 3. BACKUP GAME FILES & FOLDERS (ALL AUTOMATICALLY SELECTED EXCEPT EXCLUDED, UNDER files/ IN ZIP)
                 if (filesDir != null && filesDir.exists()) {
-                    scanFilesDir(filesDir, filesDir, selectedItems, entriesToZip, addedPaths);
+                    scanFilesDir(filesDir, filesDir, excludedItems, entriesToZip, addedPaths);
                 }
 
                 if (entriesToZip.isEmpty()) {
@@ -286,7 +297,6 @@ public class BackupManager {
                     return;
                 }
 
-                // Create backup zip in tree directory
                 String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
                 String zipName = "PojavBackup_" + timeStamp + ".zip";
 
@@ -597,7 +607,7 @@ public class BackupManager {
     public static void executeExportBackup(final Activity activity, final Uri treeUri) {
         if (activity == null || treeUri == null) return;
 
-        final Set<String> selectedItems = getSelectedItems(activity);
+        final Set<String> excludedItems = getExcludedItems(activity);
 
         final ProgressDialog progressDialog = new ProgressDialog(activity);
         progressDialog.setTitle("Creating Backup");
@@ -609,7 +619,7 @@ public class BackupManager {
         progressDialog.setCancelable(false);
         progressDialog.show();
 
-        Executors.newSingleThreadExecutor().execute(new ExportTask(activity, treeUri, selectedItems, progressDialog));
+        Executors.newSingleThreadExecutor().execute(new ExportTask(activity, treeUri, excludedItems, progressDialog));
     }
 
     public static void executeImportBackup(final Activity activity, final Uri zipUri) {
@@ -646,16 +656,20 @@ public class BackupManager {
         }
     }
 
-    private static void scanFilesDir(File rootDir, File current, Set<String> selectedItems, List<BackupEntry> results, Set<String> addedPaths) {
+    private static void scanFilesDir(File rootDir, File current, Set<String> excludedItems, List<BackupEntry> results, Set<String> addedPaths) {
         File[] list = current.listFiles();
         if (list == null) return;
 
         for (File f : list) {
             String name = f.getName();
-            if (name.equals(".cache")) continue;
-
             String relPath = getRelativePath(rootDir, f);
-            boolean isSelected = isSelectedOrParentSelected(relPath, selectedItems);
+
+            // Skip caches, logs, .fabric
+            if (isIgnoredCacheOrLog(relPath)) {
+                continue;
+            }
+
+            boolean isSelected = isPathSelected(relPath, excludedItems);
 
             if (f.isDirectory()) {
                 if (isSelected) {
@@ -664,7 +678,7 @@ public class BackupManager {
                         results.add(new BackupEntry(f, zipDirPath, true));
                     }
                 }
-                scanFilesDir(rootDir, f, selectedItems, results, addedPaths);
+                scanFilesDir(rootDir, f, excludedItems, results, addedPaths);
             } else {
                 if (isSelected) {
                     String zipFilePath = "files/" + relPath;
@@ -674,21 +688,6 @@ public class BackupManager {
                 }
             }
         }
-    }
-
-    private static boolean isSelectedOrParentSelected(String relPath, Set<String> selectedPaths) {
-        if (selectedPaths.contains(relPath)) {
-            return true;
-        }
-        int idx = relPath.lastIndexOf("/");
-        while (idx != -1) {
-            String parentPath = relPath.substring(0, idx);
-            if (selectedPaths.contains(parentPath)) {
-                return true;
-            }
-            idx = parentPath.lastIndexOf("/");
-        }
-        return false;
     }
 
     private static String getRelativePath(File root, File file) {
