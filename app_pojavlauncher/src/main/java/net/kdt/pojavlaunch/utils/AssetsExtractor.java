@@ -3,6 +3,8 @@ package net.kdt.pojavlaunch.utils;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
+import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
@@ -209,19 +211,36 @@ public class AssetsExtractor {
         });
     }
 
+    public static Activity scanForActivity(Context ctx) {
+        if (ctx == null) return null;
+        if (ctx instanceof Activity) return (Activity) ctx;
+        if (ctx instanceof ContextWrapper) {
+            return scanForActivity(((ContextWrapper) ctx).getBaseContext());
+        }
+        return null;
+    }
+
     public static void setupAddAssetsButton(final Fragment fragment) {
         if (fragment == null) return;
-        final Activity activity = fragment.getActivity();
-        if (activity == null) return;
         View view = fragment.getView();
-        if (view == null) return;
+        if (view != null) {
+            setupAddAssetsButton(view);
+        }
+    }
 
+    public static void setupAddAssetsButton(final View view) {
+        if (view == null) return;
         View btn = view.findViewById(0x7f0a021c); // add_assets_button
         if (btn != null) {
             btn.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    promptPickAssets(activity);
+                    Activity act = scanForActivity(v.getContext());
+                    if (act != null) {
+                        promptPickAssets(act);
+                    } else {
+                        Toast.makeText(v.getContext(), "Unable to start file picker", Toast.LENGTH_SHORT).show();
+                    }
                 }
             });
         }

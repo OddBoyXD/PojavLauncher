@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.Process;
 import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.widget.Toast;
@@ -380,8 +381,15 @@ public class BackupManager {
                             progressDialog.dismiss();
                             new AlertDialog.Builder(activity)
                                     .setTitle("Restore Complete!")
-                                    .setMessage("Successfully restored " + restoredCount + " files!\nAll accounts, worlds, controls, mods, and settings have been restored.")
-                                    .setPositiveButton("OK", null)
+                                    .setMessage("Successfully restored " + restoredCount + " files!\nAll accounts, worlds, controls, mods, and settings have been restored.\n\nPlease restart PojavLauncher to apply all changes.")
+                                    .setCancelable(false)
+                                    .setPositiveButton("Restart Now", new DialogInterface.OnClickListener() {
+                                        @Override
+                                        public void onClick(DialogInterface dialog, int which) {
+                                            restartApplication(activity);
+                                        }
+                                    })
+                                    .setNegativeButton("Later", null)
                                     .show();
                         }
                     });
@@ -401,6 +409,24 @@ public class BackupManager {
                 }
             }
         });
+    }
+
+    public static void restartApplication(Activity activity) {
+        if (activity == null) return;
+        try {
+            Context context = activity.getApplicationContext();
+            Intent intent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                context.startActivity(intent);
+            }
+            activity.finishAffinity();
+            Process.killProcess(Process.myPid());
+            System.exit(0);
+        } catch (Exception e) {
+            activity.finishAffinity();
+            System.exit(0);
+        }
     }
 
     private static void scanFilesDir(File rootDir, File current, Set<String> selectedItems, List<BackupEntry> results) {

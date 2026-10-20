@@ -142,7 +142,7 @@ public class BackupFolderSelector {
                     navStack.push(node);
                     updateUI.run();
                 } else if (node.isDir && (node.children == null || node.children.isEmpty())) {
-                    Toast.makeText(activity, "Folder is empty", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(activity, "Folder has no sub-folders", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -209,72 +209,107 @@ public class BackupFolderSelector {
         FolderNode root = new FolderNode("Root", "", true, "files/");
         root.children = new ArrayList<FolderNode>();
 
-        File filesDir = context.getExternalFilesDir(null);
-        File internalAccounts = new File(context.getFilesDir(), "accounts");
+        try {
+            File filesDir = context.getExternalFilesDir(null);
+            File internalAccounts = new File(context.getFilesDir(), "accounts");
 
-        // Scan all folders inside filesDir (Android/data/net.kdt.pojavlaunch/files/)
-        if (filesDir != null && filesDir.exists() && filesDir.listFiles() != null) {
-            File[] rootFiles = filesDir.listFiles();
-            for (File f : rootFiles) {
-                String name = f.getName();
-                // Skip cache/temporary/internal runtime binaries
-                if (name.equals(".cache") || name.equals("caciocavallo") || name.equals("caciocavallo17") || name.equals("lwjgl3")) {
-                    continue;
-                }
-                FolderNode node = scanNode(f, name, name, root);
-                root.children.add(node);
-            }
-        }
-
-        // Add Accounts from internal storage if not in external filesDir
-        if (internalAccounts.exists() && internalAccounts.listFiles() != null) {
-            boolean hasAccounts = false;
-            for (FolderNode fn : root.children) {
-                if (fn.name.equals("accounts")) {
-                    hasAccounts = true;
-                    break;
-                }
-            }
-            if (!hasAccounts) {
-                FolderNode accNode = new FolderNode("accounts", "accounts", true, "accounts", 0, root);
-                accNode.children = new ArrayList<FolderNode>();
-                File[] accFiles = internalAccounts.listFiles();
-                if (accFiles != null) {
-                    for (File acc : accFiles) {
-                        if (acc.isFile() && acc.getName().endsWith(".json")) {
-                            accNode.children.add(new FolderNode(acc.getName(), "accounts/" + acc.getName(), false, "accounts/" + acc.getName(), acc.length(), accNode));
+            // Scan all folders inside filesDir (Android/data/net.kdt.pojavlaunch/files/)
+            if (filesDir != null && filesDir.exists() && filesDir.listFiles() != null) {
+                File[] rootFiles = filesDir.listFiles();
+                if (rootFiles != null) {
+                    for (File f : rootFiles) {
+                        String name = f.getName();
+                        // Skip cache/temporary/internal runtime binaries
+                        if (name.equals(".cache") || name.equals("caciocavallo") || name.equals("caciocavallo17") || name.equals("lwjgl3")) {
+                            continue;
                         }
+                        FolderNode node = scanNode(f, name, name, root, 0);
+                        root.children.add(node);
                     }
                 }
-                root.children.add(accNode);
             }
-        }
+
+            // Add Accounts from internal storage if not in external filesDir
+            if (internalAccounts.exists() && internalAccounts.listFiles() != null) {
+                boolean hasAccounts = false;
+                for (FolderNode fn : root.children) {
+                    if (fn.name.equals("accounts")) {
+                        hasAccounts = true;
+                        break;
+                    }
+                }
+                if (!hasAccounts) {
+                    FolderNode accNode = new FolderNode("accounts", "accounts", true, "accounts", 0, root);
+                    accNode.children = new ArrayList<FolderNode>();
+                    File[] accFiles = internalAccounts.listFiles();
+                    if (accFiles != null) {
+                        for (File acc : accFiles) {
+                            if (acc.isFile() && acc.getName().endsWith(".json")) {
+                                accNode.children.add(new FolderNode(acc.getName(), "accounts/" + acc.getName(), false, "accounts/" + acc.getName(), acc.length(), accNode));
+                            }
+                        }
+                    }
+                    root.children.add(accNode);
+                }
+            }
+        } catch (Exception ignored) {}
 
         sortNodes(root.children);
         return root;
     }
 
-    private static FolderNode scanNode(File file, String relPath, String displayPath, FolderNode parent) {
+    private static FolderNode scanNode(File file, String relPath, String displayPath, FolderNode parent, int depth) {
         boolean isDir = file.isDirectory();
-        long size = isDir ? 0 : file.length();
+        long size = 0;
+        try {
+            size = isDir ? 0 : file.length();
+        } catch (Exception ignored) {}
+
         FolderNode node = new FolderNode(file.getName(), relPath, isDir, displayPath, size, parent);
 
         if (isDir) {
             node.children = new ArrayList<FolderNode>();
-            File[] sub = file.listFiles();
-            if (sub != null) {
-                for (File sf : sub) {
-                    String subName = sf.getName();
-                    // Skip heavy static asset objects in backup list
-                    if (relPath.equals(".minecraft") && (subName.equals("assets") || subName.equals("libraries") || subName.equals(".fabric"))) {
-                        continue;
+            String fileName = file.getName();
+
+            // PERFORMANCE OPTIMIZATION: Chunk data / entity directories in worlds have thousands of .mca files.
+            // Treat them as atomic folder units to maintain 120fps UI performance and avoid out-of-memory.
+            if (fileName.equals("region") || fileName.equals("entities") || fileName.equals("poi") || fileName.equals("DIM-1") || fileName.equals("DIM1")) {
+                try {
+                    String[] list = file.list();
+                    if (list != null) {
+                        node.sizeBytes = list.length; // store count
                     }
-                    String childRel = relPath + "/" + subName;
-                    String childDisplay = displayPath + " / " + subName;
-                    node.children.add(scanNode(sf, childRel, childDisplay, node));
-                }
-                sortNodes(node.children);
+                } catch (Exception ignored) {}
+                return node;
             }
+
+            // Limit recursion depth to avoid deep symlink loops or stack overflow
+            if (depth > 6) {
+                return node;
+            }
+
+            try {
+                File[] sub = file.listFiles();
+                if (sub != null) {
+                    int addedCount = 0;
+                    for (File sf : sub) {
+                        String subName = sf.getName();
+                        // Skip heavy static asset objects in backup list
+                        if (relPath.equals(".minecraft") && (subName.equals("assets") || subName.equals("libraries") || subName.equals(".fabric") || subName.equals("logs"))) {
+                            continue;
+                        }
+                        String childRel = relPath + "/" + subName;
+                        String childDisplay = displayPath + " / " + subName;
+                        node.children.add(scanNode(sf, childRel, childDisplay, node, depth + 1));
+                        addedCount++;
+                        if (addedCount > 300) {
+                            // Guard against giant directories
+                            break;
+                        }
+                    }
+                    sortNodes(node.children);
+                }
+            } catch (Exception ignored) {}
         }
 
         return node;
@@ -317,6 +352,9 @@ public class BackupFolderSelector {
         public String getSubtitle() {
             if (isDir) {
                 int count = children != null ? children.size() : 0;
+                if (count == 0 && sizeBytes > 0) {
+                    return sizeBytes + " items";
+                }
                 return count + " item" + (count == 1 ? "" : "s");
             }
             if (sizeBytes < 1024) return sizeBytes + " B";
