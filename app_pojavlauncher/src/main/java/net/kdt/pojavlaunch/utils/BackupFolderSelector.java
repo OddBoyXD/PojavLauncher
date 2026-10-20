@@ -17,6 +17,8 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import net.kdt.pojavlaunch.Tools;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -142,7 +144,7 @@ public class BackupFolderSelector {
                     navStack.push(node);
                     updateUI.run();
                 } else if (node.isDir && (node.children == null || node.children.isEmpty())) {
-                    Toast.makeText(activity, "Folder has no sub-folders", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(activity, "Folder is empty", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -210,17 +212,24 @@ public class BackupFolderSelector {
         root.children = new ArrayList<FolderNode>();
 
         try {
-            File filesDir = context.getExternalFilesDir(null);
+            File filesDir = null;
+            if (Tools.DIR_GAME_HOME != null) {
+                filesDir = new File(Tools.DIR_GAME_HOME);
+            }
+            if (filesDir == null || !filesDir.exists()) {
+                filesDir = context.getExternalFilesDir(null);
+            }
+
             File internalAccounts = new File(context.getFilesDir(), "accounts");
 
-            // Scan all folders inside filesDir (Android/data/net.kdt.pojavlaunch/files/)
-            if (filesDir != null && filesDir.exists() && filesDir.listFiles() != null) {
+            // Scan all files & folders inside filesDir (Pojav home: Android/data/net.kdt.pojavlaunch/files/)
+            if (filesDir != null && filesDir.exists()) {
                 File[] rootFiles = filesDir.listFiles();
                 if (rootFiles != null) {
                     for (File f : rootFiles) {
                         String name = f.getName();
-                        // Skip cache/temporary/internal runtime binaries
-                        if (name.equals(".cache") || name.equals("caciocavallo") || name.equals("caciocavallo17") || name.equals("lwjgl3")) {
+                        // Only skip .cache directory
+                        if (name.equals(".cache")) {
                             continue;
                         }
                         FolderNode node = scanNode(f, name, name, root, 0);
@@ -271,19 +280,18 @@ public class BackupFolderSelector {
             node.children = new ArrayList<FolderNode>();
             String fileName = file.getName();
 
-            // PERFORMANCE OPTIMIZATION: Chunk data / entity directories in worlds have thousands of .mca files.
-            // Treat them as atomic folder units to maintain 120fps UI performance and avoid out-of-memory.
+            // PERFORMANCE OPTIMIZATION: Dense chunk files inside saves (region, entities, poi, DIM-1, DIM1)
+            // are treated as atomic folder items so that the list doesn't get flooded with 20,000 files.
             if (fileName.equals("region") || fileName.equals("entities") || fileName.equals("poi") || fileName.equals("DIM-1") || fileName.equals("DIM1")) {
                 try {
                     String[] list = file.list();
                     if (list != null) {
-                        node.sizeBytes = list.length; // store count
+                        node.sizeBytes = list.length;
                     }
                 } catch (Exception ignored) {}
                 return node;
             }
 
-            // Limit recursion depth to avoid deep symlink loops or stack overflow
             if (depth > 6) {
                 return node;
             }
@@ -294,7 +302,7 @@ public class BackupFolderSelector {
                     int addedCount = 0;
                     for (File sf : sub) {
                         String subName = sf.getName();
-                        // Skip heavy static asset objects in backup list
+                        // Skip static asset hash blobs (managed separately via clean assets bundle)
                         if (relPath.equals(".minecraft") && (subName.equals("assets") || subName.equals("libraries") || subName.equals(".fabric") || subName.equals("logs"))) {
                             continue;
                         }
@@ -303,7 +311,6 @@ public class BackupFolderSelector {
                         node.children.add(scanNode(sf, childRel, childDisplay, node, depth + 1));
                         addedCount++;
                         if (addedCount > 300) {
-                            // Guard against giant directories
                             break;
                         }
                     }

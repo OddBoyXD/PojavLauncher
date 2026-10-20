@@ -15,6 +15,8 @@ import android.provider.DocumentsContract;
 import android.provider.Settings;
 import android.widget.Toast;
 
+import net.kdt.pojavlaunch.Tools;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -176,12 +178,19 @@ public class BackupManager {
             @Override
             public void run() {
                 try {
-                    File filesDir = activity.getExternalFilesDir(null);
+                    File filesDir = null;
+                    if (Tools.DIR_GAME_HOME != null) {
+                        filesDir = new File(Tools.DIR_GAME_HOME);
+                    }
+                    if (filesDir == null || !filesDir.exists()) {
+                        filesDir = activity.getExternalFilesDir(null);
+                    }
+
                     File accountsDir = new File(activity.getFilesDir(), "accounts");
 
                     final List<BackupEntry> entriesToZip = new ArrayList<BackupEntry>();
 
-                    // 1. Scan external filesDir (Android/data/net.kdt.pojavlaunch/files/)
+                    // 1. Scan external filesDir (Pojav home: Android/data/net.kdt.pojavlaunch/files/)
                     if (filesDir != null && filesDir.exists()) {
                         scanFilesDir(filesDir, filesDir, selectedItems, entriesToZip);
                     }
@@ -320,7 +329,14 @@ public class BackupManager {
             @Override
             public void run() {
                 try {
-                    File filesDir = activity.getExternalFilesDir(null);
+                    File filesDir = null;
+                    if (Tools.DIR_GAME_HOME != null) {
+                        filesDir = new File(Tools.DIR_GAME_HOME);
+                    }
+                    if (filesDir == null || !filesDir.exists()) {
+                        filesDir = activity.getExternalFilesDir(null);
+                    }
+
                     File accountsDir = new File(activity.getFilesDir(), "accounts");
 
                     if (filesDir != null && !filesDir.exists()) filesDir.mkdirs();
@@ -435,8 +451,8 @@ public class BackupManager {
 
         for (File f : list) {
             String name = f.getName();
-            // Skip temporary cache / binary libraries
-            if (name.equals(".cache") || name.equals("caciocavallo") || name.equals("caciocavallo17") || name.equals("lwjgl3")) {
+            // Skip temporary cache directory
+            if (name.equals(".cache")) {
                 continue;
             }
 

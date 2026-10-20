@@ -109,7 +109,13 @@ public class AssetsExtractor {
                         }
                     } catch (Exception ignored) {}
 
-                    File filesDir = activity.getExternalFilesDir(null);
+                    File filesDir = null;
+                    if (net.kdt.pojavlaunch.Tools.DIR_GAME_HOME != null) {
+                        filesDir = new File(net.kdt.pojavlaunch.Tools.DIR_GAME_HOME);
+                    }
+                    if (filesDir == null || !filesDir.exists()) {
+                        filesDir = activity.getExternalFilesDir(null);
+                    }
                     File mcDir = new File(filesDir, ".minecraft");
                     File assetsDir = new File(mcDir, "assets");
                     assetsDir.mkdirs();
