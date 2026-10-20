@@ -189,6 +189,12 @@ public class ControlButton extends TextView implements ControlInterface {
 
     public void sendKeyPresses(boolean isDown){
         setActivated(isDown);
+        if (mProperties.isCommand) {
+            if (isDown) {
+                net.kdt.pojavlaunch.customcontrols.MacroExecutor.execute(mProperties.commandText);
+            }
+            return;
+        }
         for(int keycode : mProperties.keycodes){
             if(keycode >= GLFW_KEY_UNKNOWN){
                 sendKeyPress(keycode, CallbackBridge.getCurrentMods(), isDown);

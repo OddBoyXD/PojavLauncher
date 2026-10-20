@@ -274,6 +274,7 @@ public class EditControlPopup {
         mOrientationTextView.setVisibility(GONE);
         mOrientationSpinner.setVisibility(GONE);
         mForwardLockSwitch.setVisibility(GONE);
+        net.kdt.pojavlaunch.customcontrols.handleview.CommandMacroEditorHook.onLoadValues(mScrollView, data);
 
         mNameEditText.setText(data.name);
         mWidthEditText.setText(String.valueOf(data.getWidth()));
@@ -411,6 +412,7 @@ public class EditControlPopup {
         mVisibilityTextView = mScrollView.findViewById(R.id.visibility_textview);
         mSizeTextview = mScrollView.findViewById(R.id.editSize_textView);
         mSizeXTextView = mScrollView.findViewById(R.id.editSize_x_textView);
+        net.kdt.pojavlaunch.customcontrols.handleview.CommandMacroEditorHook.bind(mScrollView);
     }
 
     /**

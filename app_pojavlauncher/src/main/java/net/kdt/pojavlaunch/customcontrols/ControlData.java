@@ -54,6 +54,8 @@ public class ControlData {
      */
     public String dynamicX, dynamicY;
     public boolean isDynamicBtn, isToggle, passThruEnabled;
+    public boolean isCommand;
+    public String commandText = "";
     public String name;
     public int[] keycodes;      //Should store up to 4 keys
     public float opacity;       //Alpha value from 0 to 1;
@@ -128,6 +130,8 @@ public class ControlData {
         this.cornerRadius = cornerRadius;
         this.displayInGame = displayInGame;
         this.displayInMenu = displayInMenu;
+        this.isCommand = controlData.isCommand;
+        this.commandText = controlData.commandText;
     }
 
     //Deep copy constructor
