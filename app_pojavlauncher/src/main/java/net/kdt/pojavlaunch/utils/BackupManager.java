@@ -47,17 +47,13 @@ public class BackupManager {
         Set<String> set = sp.getStringSet(KEY_SELECTED_ITEMS, null);
         if (set == null) {
             set = new HashSet<String>();
-            set.add("accounts");
+            // Default select all main contents in files/
+            set.add(".minecraft");
             set.add("controlmap");
-            set.add(".minecraft/saves");
-            set.add(".minecraft/mods");
-            set.add(".minecraft/config");
-            set.add(".minecraft/resourcepacks");
-            set.add(".minecraft/shaderpacks");
-            set.add(".minecraft/schematics");
-            set.add(".minecraft/servers.dat");
-            set.add(".minecraft/options.txt");
-            set.add(".minecraft/launcher_profiles.json");
+            set.add("caciocavallo");
+            set.add("caciocavallo17");
+            set.add("lwjgl3");
+            set.add("latestcrash.txt");
         }
         return new HashSet<String>(set);
     }
@@ -159,10 +155,6 @@ public class BackupManager {
         if (activity == null || treeUri == null) return;
 
         final Set<String> selectedItems = getSelectedItems(activity);
-        if (selectedItems.isEmpty()) {
-            Toast.makeText(activity, "No items selected for backup. Please select items in 'Select Backup Items' first.", Toast.LENGTH_LONG).show();
-            return;
-        }
 
         final ProgressDialog progressDialog = new ProgressDialog(activity);
         progressDialog.setTitle("Creating Backup");
@@ -186,37 +178,74 @@ public class BackupManager {
                         filesDir = activity.getExternalFilesDir(null);
                     }
 
-                    File accountsDir = new File(activity.getFilesDir(), "accounts");
+                    File internalAccounts = new File(activity.getFilesDir(), "accounts");
+                    File externalAccounts = new File(filesDir, "accounts");
+                    File sharedPrefsDir = new File(activity.getApplicationInfo().dataDir, "shared_prefs");
 
                     final List<BackupEntry> entriesToZip = new ArrayList<BackupEntry>();
+                    final Set<String> addedPaths = new HashSet<String>();
 
-                    // 1. Scan external filesDir (Pojav home: Android/data/net.kdt.pojavlaunch/files/)
-                    if (filesDir != null && filesDir.exists()) {
-                        scanFilesDir(filesDir, filesDir, selectedItems, entriesToZip);
-                    }
-
-                    // 2. Scan internal accounts if not already captured
-                    if (accountsDir.exists()) {
-                        File[] accs = accountsDir.listFiles();
+                    // 1. ALWAYS AUTOMATICALLY BACKUP ACCOUNTS
+                    if (internalAccounts.exists()) {
+                        File[] accs = internalAccounts.listFiles();
                         if (accs != null) {
                             for (File acc : accs) {
                                 if (acc.isFile()) {
-                                    String relPath = "accounts/" + acc.getName();
-                                    if (selectedItems.contains(relPath) || selectedItems.contains("accounts")) {
-                                        boolean alreadyIn = false;
-                                        for (BackupEntry be : entriesToZip) {
-                                            if (be.zipPath.equals(relPath)) {
-                                                alreadyIn = true;
-                                                break;
-                                            }
-                                        }
-                                        if (!alreadyIn) {
-                                            entriesToZip.add(new BackupEntry(acc, relPath));
-                                        }
+                                    String zipPath = "accounts/" + acc.getName();
+                                    if (addedPaths.add(zipPath)) {
+                                        entriesToZip.add(new BackupEntry(acc, zipPath));
                                     }
                                 }
                             }
                         }
+                    }
+                    if (externalAccounts.exists()) {
+                        File[] accs = externalAccounts.listFiles();
+                        if (accs != null) {
+                            for (File acc : accs) {
+                                if (acc.isFile()) {
+                                    String zipPath = "accounts/" + acc.getName();
+                                    if (addedPaths.add(zipPath)) {
+                                        entriesToZip.add(new BackupEntry(acc, zipPath));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. ALWAYS AUTOMATICALLY BACKUP SETTINGS & PREFERENCES
+                    if (sharedPrefsDir.exists()) {
+                        File[] prefs = sharedPrefsDir.listFiles();
+                        if (prefs != null) {
+                            for (File pref : prefs) {
+                                if (pref.isFile()) {
+                                    String zipPath = "shared_prefs/" + pref.getName();
+                                    if (addedPaths.add(zipPath)) {
+                                        entriesToZip.add(new BackupEntry(pref, zipPath));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Always backup Minecraft options, servers, launcher profiles if present
+                    File mcDir = new File(filesDir, ".minecraft");
+                    File optFile = new File(mcDir, "options.txt");
+                    if (optFile.exists() && addedPaths.add(".minecraft/options.txt")) {
+                        entriesToZip.add(new BackupEntry(optFile, ".minecraft/options.txt"));
+                    }
+                    File srvFile = new File(mcDir, "servers.dat");
+                    if (srvFile.exists() && addedPaths.add(".minecraft/servers.dat")) {
+                        entriesToZip.add(new BackupEntry(srvFile, ".minecraft/servers.dat"));
+                    }
+                    File profFile = new File(mcDir, "launcher_profiles.json");
+                    if (profFile.exists() && addedPaths.add(".minecraft/launcher_profiles.json")) {
+                        entriesToZip.add(new BackupEntry(profFile, ".minecraft/launcher_profiles.json"));
+                    }
+
+                    // 3. BACKUP USER SELECTED FILES & FOLDERS FROM filesDir
+                    if (filesDir != null && filesDir.exists()) {
+                        scanFilesDir(filesDir, filesDir, selectedItems, entriesToZip, addedPaths);
                     }
 
                     if (entriesToZip.isEmpty()) {
@@ -291,7 +320,7 @@ public class BackupManager {
                             progressDialog.dismiss();
                             new AlertDialog.Builder(activity)
                                     .setTitle("Backup Complete!")
-                                    .setMessage("Successfully created " + finalZipName + "\n\nTotal files backed up: " + finalCount)
+                                    .setMessage("Successfully created " + finalZipName + "\n\nTotal files backed up: " + finalCount + "\n(Accounts and settings included)")
                                     .setPositiveButton("OK", null)
                                     .show();
                         }
@@ -338,9 +367,11 @@ public class BackupManager {
                     }
 
                     File accountsDir = new File(activity.getFilesDir(), "accounts");
+                    File sharedPrefsDir = new File(activity.getApplicationInfo().dataDir, "shared_prefs");
 
                     if (filesDir != null && !filesDir.exists()) filesDir.mkdirs();
                     if (!accountsDir.exists()) accountsDir.mkdirs();
+                    if (!sharedPrefsDir.exists()) sharedPrefsDir.mkdirs();
 
                     InputStream is = activity.getContentResolver().openInputStream(zipUri);
                     if (is == null) throw new Exception("Cannot open backup archive.");
@@ -364,7 +395,15 @@ public class BackupManager {
                             continue;
                         }
 
-                        File outFile = new File(filesDir, name);
+                        File outFile;
+                        if (name.startsWith("accounts/")) {
+                            outFile = new File(accountsDir, name.substring("accounts/".length()));
+                        } else if (name.startsWith("shared_prefs/")) {
+                            outFile = new File(sharedPrefsDir, name.substring("shared_prefs/".length()));
+                        } else {
+                            outFile = new File(filesDir, name);
+                        }
+
                         File parent = outFile.getParentFile();
                         if (parent != null && !parent.exists()) parent.mkdirs();
 
@@ -375,12 +414,12 @@ public class BackupManager {
                         }
                         fos.close();
 
-                        // Also mirror accounts to internal accountsDir if in accounts/
+                        // Also mirror accounts to external storage if restored to internal
                         if (name.startsWith("accounts/")) {
-                            File internalAcc = new File(activity.getFilesDir(), name);
-                            File internalParent = internalAcc.getParentFile();
-                            if (internalParent != null && !internalParent.exists()) internalParent.mkdirs();
-                            copyFile(outFile, internalAcc);
+                            File extAcc = new File(filesDir, name);
+                            File extParent = extAcc.getParentFile();
+                            if (extParent != null && !extParent.exists()) extParent.mkdirs();
+                            copyFile(outFile, extAcc);
                         }
 
                         count++;
@@ -445,16 +484,13 @@ public class BackupManager {
         }
     }
 
-    private static void scanFilesDir(File rootDir, File current, Set<String> selectedItems, List<BackupEntry> results) {
+    private static void scanFilesDir(File rootDir, File current, Set<String> selectedItems, List<BackupEntry> results, Set<String> addedPaths) {
         File[] list = current.listFiles();
         if (list == null) return;
 
         for (File f : list) {
             String name = f.getName();
-            // Skip temporary cache directory
-            if (name.equals(".cache")) {
-                continue;
-            }
+            if (name.equals(".cache")) continue;
 
             String relPath = getRelativePath(rootDir, f);
             if (relPath.startsWith(".minecraft/assets") || relPath.startsWith(".minecraft/libraries") || relPath.startsWith(".minecraft/.fabric")) {
@@ -462,9 +498,9 @@ public class BackupManager {
             }
 
             if (f.isDirectory()) {
-                scanFilesDir(rootDir, f, selectedItems, results);
+                scanFilesDir(rootDir, f, selectedItems, results, addedPaths);
             } else {
-                if (selectedItems.contains(relPath) || isAnyParentSelected(relPath, selectedItems)) {
+                if ((selectedItems.contains(relPath) || isAnyParentSelected(relPath, selectedItems)) && addedPaths.add(relPath)) {
                     results.add(new BackupEntry(f, relPath));
                 }
             }

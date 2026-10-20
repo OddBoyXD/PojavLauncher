@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
+import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -42,13 +43,21 @@ public class BackupFolderSelector {
         // Container
         final LinearLayout container = new LinearLayout(activity);
         container.setOrientation(LinearLayout.VERTICAL);
-        container.setPadding(24, 20, 24, 12);
+        container.setPadding(24, 16, 24, 12);
+
+        // Notice Bar: Accounts & Settings are auto-backed up
+        final TextView noticeView = new TextView(activity);
+        noticeView.setText("ℹ️ Accounts & Settings are always backed up automatically.");
+        noticeView.setTextSize(12);
+        noticeView.setTextColor(Color.parseColor("#4CAF50"));
+        noticeView.setPadding(4, 0, 4, 10);
+        container.addView(noticeView);
 
         // Top Navigation Bar
         final LinearLayout topBar = new LinearLayout(activity);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(0, 0, 0, 14);
+        topBar.setPadding(0, 0, 0, 12);
 
         final Button backBtn = new Button(activity);
         backBtn.setText("◀ Back");
@@ -56,15 +65,15 @@ public class BackupFolderSelector {
 
         final TextView pathView = new TextView(activity);
         pathView.setText("files/");
-        pathView.setTextSize(15);
+        pathView.setTextSize(14);
         pathView.setTypeface(null, Typeface.BOLD);
-        pathView.setPadding(16, 0, 0, 0);
+        pathView.setPadding(14, 0, 0, 0);
         pathView.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
 
         topBar.addView(backBtn);
         topBar.addView(pathView);
 
-        // Action Buttons Bar
+        // Action Buttons Bar (Select All / Deselect All)
         final LinearLayout actionBar = new LinearLayout(activity);
         actionBar.setOrientation(LinearLayout.HORIZONTAL);
         actionBar.setPadding(0, 0, 0, 10);
@@ -82,7 +91,8 @@ public class BackupFolderSelector {
 
         // Items List
         final ListView listView = new ListView(activity);
-        listView.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 840));
+        listView.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        listView.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 860));
 
         container.addView(topBar);
         container.addView(actionBar);
@@ -140,23 +150,25 @@ public class BackupFolderSelector {
         adapter.setOnNodeClickListener(new NodeClickListener() {
             @Override
             public void onNodeClicked(FolderNode node) {
-                if (node.isDir && node.children != null && !node.children.isEmpty()) {
-                    navStack.push(node);
-                    updateUI.run();
-                } else if (node.isDir && (node.children == null || node.children.isEmpty())) {
-                    Toast.makeText(activity, "Folder is empty", Toast.LENGTH_SHORT).show();
+                if (node.isDir) {
+                    if (node.children != null && !node.children.isEmpty()) {
+                        navStack.push(node);
+                        updateUI.run();
+                    } else {
+                        Toast.makeText(activity, "Folder is empty (" + node.name + ")", Toast.LENGTH_SHORT).show();
+                    }
                 }
             }
         });
 
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
-        builder.setTitle("Select Items to Backup");
+        builder.setTitle("Select Files & Folders to Backup");
         builder.setView(container);
         builder.setPositiveButton("Save Selection", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 BackupManager.saveSelectedItems(activity, selectedPaths);
-                Toast.makeText(activity, "Backup selections saved (" + selectedPaths.size() + " items active)", Toast.LENGTH_SHORT).show();
+                Toast.makeText(activity, "Selection saved (" + selectedPaths.size() + " items chosen)", Toast.LENGTH_SHORT).show();
             }
         });
         builder.setNegativeButton("Cancel", null);
@@ -182,7 +194,6 @@ public class BackupFolderSelector {
                 deselectRecursively(child, selected);
             }
         }
-        // Remove all ancestors so parent is not falsely considered fully selected
         FolderNode p = node.parent;
         while (p != null) {
             selected.remove(p.relPath);
@@ -220,45 +231,15 @@ public class BackupFolderSelector {
                 filesDir = context.getExternalFilesDir(null);
             }
 
-            File internalAccounts = new File(context.getFilesDir(), "accounts");
-
-            // Scan all files & folders inside filesDir (Pojav home: Android/data/net.kdt.pojavlaunch/files/)
             if (filesDir != null && filesDir.exists()) {
                 File[] rootFiles = filesDir.listFiles();
                 if (rootFiles != null) {
                     for (File f : rootFiles) {
                         String name = f.getName();
-                        // Only skip .cache directory
-                        if (name.equals(".cache")) {
-                            continue;
-                        }
+                        if (name.equals(".cache")) continue;
                         FolderNode node = scanNode(f, name, name, root, 0);
                         root.children.add(node);
                     }
-                }
-            }
-
-            // Add Accounts from internal storage if not in external filesDir
-            if (internalAccounts.exists() && internalAccounts.listFiles() != null) {
-                boolean hasAccounts = false;
-                for (FolderNode fn : root.children) {
-                    if (fn.name.equals("accounts")) {
-                        hasAccounts = true;
-                        break;
-                    }
-                }
-                if (!hasAccounts) {
-                    FolderNode accNode = new FolderNode("accounts", "accounts", true, "accounts", 0, root);
-                    accNode.children = new ArrayList<FolderNode>();
-                    File[] accFiles = internalAccounts.listFiles();
-                    if (accFiles != null) {
-                        for (File acc : accFiles) {
-                            if (acc.isFile() && acc.getName().endsWith(".json")) {
-                                accNode.children.add(new FolderNode(acc.getName(), "accounts/" + acc.getName(), false, "accounts/" + acc.getName(), acc.length(), accNode));
-                            }
-                        }
-                    }
-                    root.children.add(accNode);
                 }
             }
         } catch (Exception ignored) {}
@@ -278,41 +259,22 @@ public class BackupFolderSelector {
 
         if (isDir) {
             node.children = new ArrayList<FolderNode>();
-            String fileName = file.getName();
-
-            // PERFORMANCE OPTIMIZATION: Dense chunk files inside saves (region, entities, poi, DIM-1, DIM1)
-            // are treated as atomic folder items so that the list doesn't get flooded with 20,000 files.
-            if (fileName.equals("region") || fileName.equals("entities") || fileName.equals("poi") || fileName.equals("DIM-1") || fileName.equals("DIM1")) {
-                try {
-                    String[] list = file.list();
-                    if (list != null) {
-                        node.sizeBytes = list.length;
-                    }
-                } catch (Exception ignored) {}
-                return node;
-            }
-
-            if (depth > 6) {
+            if (depth > 12) {
                 return node;
             }
 
             try {
                 File[] sub = file.listFiles();
                 if (sub != null) {
-                    int addedCount = 0;
                     for (File sf : sub) {
                         String subName = sf.getName();
-                        // Skip static asset hash blobs (managed separately via clean assets bundle)
+                        // Skip static assets & libraries so it doesn't clutter list with 100k internal hash files
                         if (relPath.equals(".minecraft") && (subName.equals("assets") || subName.equals("libraries") || subName.equals(".fabric") || subName.equals("logs"))) {
                             continue;
                         }
                         String childRel = relPath + "/" + subName;
                         String childDisplay = displayPath + " / " + subName;
                         node.children.add(scanNode(sf, childRel, childDisplay, node, depth + 1));
-                        addedCount++;
-                        if (addedCount > 300) {
-                            break;
-                        }
                     }
                     sortNodes(node.children);
                 }
@@ -359,9 +321,6 @@ public class BackupFolderSelector {
         public String getSubtitle() {
             if (isDir) {
                 int count = children != null ? children.size() : 0;
-                if (count == 0 && sizeBytes > 0) {
-                    return sizeBytes + " items";
-                }
                 return count + " item" + (count == 1 ? "" : "s");
             }
             if (sizeBytes < 1024) return sizeBytes + " B";
@@ -417,15 +376,18 @@ public class BackupFolderSelector {
                 row = new LinearLayout(context);
                 row.setOrientation(LinearLayout.HORIZONTAL);
                 row.setGravity(Gravity.CENTER_VERTICAL);
-                row.setPadding(12, 14, 12, 14);
+                row.setPadding(10, 10, 10, 10);
 
                 CheckBox cb = new CheckBox(context);
                 cb.setId(1001);
+                cb.setFocusable(false);
+                cb.setFocusableInTouchMode(false);
 
                 LinearLayout textLayout = new LinearLayout(context);
+                textLayout.setId(1005);
                 textLayout.setOrientation(LinearLayout.VERTICAL);
                 textLayout.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
-                textLayout.setPadding(8, 0, 8, 0);
+                textLayout.setPadding(10, 4, 10, 4);
 
                 TextView title = new TextView(context);
                 title.setId(1002);
@@ -439,15 +401,17 @@ public class BackupFolderSelector {
                 textLayout.addView(title);
                 textLayout.addView(subtitle);
 
-                TextView arrow = new TextView(context);
-                arrow.setId(1004);
-                arrow.setText("▶");
-                arrow.setTextSize(16);
-                arrow.setPadding(12, 0, 12, 0);
+                Button openBtn = new Button(context);
+                openBtn.setId(1004);
+                openBtn.setText("Open ▶");
+                openBtn.setTextSize(11);
+                openBtn.setPadding(16, 4, 16, 4);
+                openBtn.setFocusable(false);
+                openBtn.setFocusableInTouchMode(false);
 
                 row.addView(cb);
                 row.addView(textLayout);
-                row.addView(arrow);
+                row.addView(openBtn);
             } else {
                 row = (LinearLayout) convertView;
             }
@@ -456,11 +420,14 @@ public class BackupFolderSelector {
             CheckBox cb = row.findViewById(1001);
             TextView title = row.findViewById(1002);
             TextView subtitle = row.findViewById(1003);
-            TextView arrow = row.findViewById(1004);
+            Button openBtn = row.findViewById(1004);
+            LinearLayout textLayout = row.findViewById(1005);
 
             title.setText((node.isDir ? "📁 " : "📄 ") + node.name);
             subtitle.setText(node.getSubtitle());
-            arrow.setVisibility(node.isDir && node.children != null && !node.children.isEmpty() ? View.VISIBLE : View.GONE);
+
+            boolean hasChildren = node.isDir && node.children != null && !node.children.isEmpty();
+            openBtn.setVisibility(hasChildren ? View.VISIBLE : View.GONE);
 
             cb.setOnCheckedChangeListener(null);
             cb.setChecked(selectedPaths.contains(node.relPath));
@@ -477,14 +444,18 @@ public class BackupFolderSelector {
                 }
             });
 
-            row.setOnClickListener(new View.OnClickListener() {
+            View.OnClickListener openFolderListener = new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     if (clickListener != null && node.isDir) {
                         clickListener.onNodeClicked(node);
                     }
                 }
-            });
+            };
+
+            openBtn.setOnClickListener(openFolderListener);
+            textLayout.setOnClickListener(openFolderListener);
+            row.setOnClickListener(openFolderListener);
 
             return row;
         }
