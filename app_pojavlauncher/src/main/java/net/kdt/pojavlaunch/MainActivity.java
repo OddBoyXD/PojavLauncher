@@ -609,4 +609,16 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         navDrawer.setOnItemClickListener(gameActionClickListener);
         isInEditor = false;
     }
+
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        net.kdt.pojavlaunch.utils.CleanUtils.handleTrimMemory(this, level);
+    }
+
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+        net.kdt.pojavlaunch.utils.CleanUtils.handleTrimMemory(this, 80);
+    }
 }

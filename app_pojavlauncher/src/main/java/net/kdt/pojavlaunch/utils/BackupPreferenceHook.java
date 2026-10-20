@@ -43,5 +43,16 @@ public class BackupPreferenceHook {
                 }
             });
         }
+
+        Preference cleanNowPref = fragment.findPreference("pref_clean_logs_caches_now");
+        if (cleanNowPref != null) {
+            cleanNowPref.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
+                @Override
+                public boolean onPreferenceClick(Preference preference) {
+                    CleanUtils.promptManualClean(activity);
+                    return true;
+                }
+            });
+        }
     }
 }

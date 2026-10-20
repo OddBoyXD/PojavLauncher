@@ -1,27 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app2="http://schemas.android.com/apk/res-auto">
-
-    <net.kdt.pojavlaunch.prefs.BackButtonPreference/>
-
+<PreferenceScreen
+  xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app2="http://schemas.android.com/apk/res-auto">
+    <net.kdt.pojavlaunch.prefs.BackButtonPreference />
     <PreferenceCategory android:title="Miscellaneous settings">
-        <SwitchPreference
-            android:defaultValue="true"
-            android:icon="@drawable/ic_setting_hash_verification"
-            android:key="checkLibraries"
-            android:summary="@string/mcl_setting_check_libraries_subtitle"
-            android:title="@string/mcl_setting_check_libraries" />
-        <SwitchPreference
-            android:defaultValue="false"
-            android:key="arc_capes"
-            android:summary="@string/arc_capes_desc"
-            android:title="@string/arc_capes_title" />
-        <SwitchPreference
-            android:defaultValue="false"
-            android:key="zinkPreferSystemDriver"
-            android:summary="@string/preference_vulkan_driver_system_description"
-            android:title="@string/preference_vulkan_driver_system_title"/>
+        <SwitchPreference android:icon="@drawable/ic_setting_hash_verification" android:title="@string/mcl_setting_check_libraries" android:key="checkLibraries" android:summary="@string/mcl_setting_check_libraries_subtitle" android:defaultValue="true" />
+        <SwitchPreference android:title="@string/arc_capes_title" android:key="arc_capes" android:summary="@string/arc_capes_desc" android:defaultValue="false" />
+        <SwitchPreference android:title="@string/preference_vulkan_driver_system_title" android:key="zinkPreferSystemDriver" android:summary="@string/preference_vulkan_driver_system_description" android:defaultValue="false" />
+    </PreferenceCategory>
 
+    <PreferenceCategory android:title="Maintenance &amp; Optimization">
+        <SwitchPreference android:icon="@drawable/ic_menu_delete_forever" android:title="Auto-Clean Logs &amp; Caches on Launch" android:key="pref_auto_clean_on_launch" android:summary="Automatically clear logs and temporary caches whenever the game starts" android:defaultValue="false" />
+        <Preference android:icon="@drawable/ic_menu_delete_forever" android:title="Clean Logs &amp; Caches Now" android:key="pref_clean_logs_caches_now" android:summary="Purge temporary caches and log files immediately to free up storage" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Backup &amp; Restore">
+        <Preference android:icon="@drawable/ic_menu_custom_controls" android:title="Select Backup Items" android:key="pref_select_backup_items" android:summary="Choose specific folders, worlds, controls, and files to back up" />
+        <Preference android:icon="@drawable/ic_menu_install_jar" android:title="Export Backup (.zip)" android:key="pref_export_backup" android:summary="Save selected worlds, mods, controls, accounts and settings to a folder" />
+        <Preference android:icon="@drawable/ic_menu_home" android:title="Import Backup (.zip)" android:key="pref_import_backup" android:summary="Restore accounts, settings, controls, and game files from backup zip" />
     </PreferenceCategory>
 
 </PreferenceScreen>

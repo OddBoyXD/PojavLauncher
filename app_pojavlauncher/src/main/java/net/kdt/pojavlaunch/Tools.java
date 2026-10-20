@@ -164,6 +164,7 @@ public final class Tools {
 
     public static void launchMinecraft(final Activity activity, MinecraftAccount minecraftAccount,
                                        MinecraftProfile minecraftProfile, String versionId, int versionJavaRequirement) throws Throwable {
+        net.kdt.pojavlaunch.utils.CleanUtils.onPreLaunch(activity);
         int freeDeviceMemory = getFreeDeviceMemory(activity);
         if(LauncherPreferences.PREF_RAM_ALLOCATION > freeDeviceMemory) {
             Object memoryErrorLock = new Object();
