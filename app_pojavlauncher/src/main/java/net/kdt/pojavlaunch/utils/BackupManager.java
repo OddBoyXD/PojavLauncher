@@ -4,10 +4,14 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.ProgressDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
 import android.provider.DocumentsContract;
+import android.provider.Settings;
 import android.widget.Toast;
 
 import java.io.File;
@@ -40,18 +44,17 @@ public class BackupManager {
         Set<String> set = sp.getStringSet(KEY_SELECTED_ITEMS, null);
         if (set == null) {
             set = new HashSet<String>();
-            set.add("ACCOUNTS");
-            set.add("SETTINGS");
+            set.add("accounts");
             set.add("controlmap");
-            set.add("saves");
-            set.add("mods");
-            set.add("config");
-            set.add("resourcepacks");
-            set.add("shaderpacks");
-            set.add("schematics");
-            set.add("servers.dat");
-            set.add("options.txt");
-            set.add("launcher_profiles.json");
+            set.add(".minecraft/saves");
+            set.add(".minecraft/mods");
+            set.add(".minecraft/config");
+            set.add(".minecraft/resourcepacks");
+            set.add(".minecraft/shaderpacks");
+            set.add(".minecraft/schematics");
+            set.add(".minecraft/servers.dat");
+            set.add(".minecraft/options.txt");
+            set.add(".minecraft/launcher_profiles.json");
         }
         return new HashSet<String>(set);
     }
@@ -61,7 +64,38 @@ public class BackupManager {
         sp.edit().putStringSet(KEY_SELECTED_ITEMS, items).apply();
     }
 
-    public static void promptExportBackup(Activity activity) {
+    public static void promptExportBackup(final Activity activity) {
+        if (activity == null) return;
+
+        // Check All Files Access permission on Android 11+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                new AlertDialog.Builder(activity)
+                        .setTitle("Storage Permission Required")
+                        .setMessage("PojavLauncher needs 'All files access' permission to export and save your backups safely to your device storage.\n\nPlease enable 'Allow access to manage all files' for PojavLauncher in the next screen.")
+                        .setPositiveButton("Grant Access", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                try {
+                                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                                    intent.setData(Uri.parse("package:" + activity.getPackageName()));
+                                    activity.startActivity(intent);
+                                } catch (Exception e) {
+                                    try {
+                                        Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                                        activity.startActivity(intent);
+                                    } catch (Exception ex) {
+                                        Toast.makeText(activity, "Cannot open permission settings: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
+                                    }
+                                }
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+                return;
+            }
+        }
+
         try {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
@@ -71,7 +105,37 @@ public class BackupManager {
         }
     }
 
-    public static void promptImportBackup(Activity activity) {
+    public static void promptImportBackup(final Activity activity) {
+        if (activity == null) return;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                new AlertDialog.Builder(activity)
+                        .setTitle("Storage Permission Required")
+                        .setMessage("PojavLauncher needs 'All files access' permission to import and restore your backups safely.\n\nPlease enable 'Allow access to manage all files' for PojavLauncher in the next screen.")
+                        .setPositiveButton("Grant Access", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                try {
+                                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                                    intent.setData(Uri.parse("package:" + activity.getPackageName()));
+                                    activity.startActivity(intent);
+                                } catch (Exception e) {
+                                    try {
+                                        Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                                        activity.startActivity(intent);
+                                    } catch (Exception ex) {
+                                        Toast.makeText(activity, "Cannot open permission settings: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
+                                    }
+                                }
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+                return;
+            }
+        }
+
         try {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -93,7 +157,7 @@ public class BackupManager {
 
         final Set<String> selectedItems = getSelectedItems(activity);
         if (selectedItems.isEmpty()) {
-            Toast.makeText(activity, "No items selected for backup. Please select items first.", Toast.LENGTH_LONG).show();
+            Toast.makeText(activity, "No items selected for backup. Please select items in 'Select Backup Items' first.", Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -112,33 +176,33 @@ public class BackupManager {
             public void run() {
                 try {
                     File filesDir = activity.getExternalFilesDir(null);
-                    File mcDir = new File(filesDir, ".minecraft");
-                    File controlDir = new File(filesDir, "controlmap");
                     File accountsDir = new File(activity.getFilesDir(), "accounts");
 
                     final List<BackupEntry> entriesToZip = new ArrayList<BackupEntry>();
 
-                    // 1. Accounts
-                    if (selectedItems.contains("ACCOUNTS") && accountsDir.exists()) {
-                        scanFolder(accountsDir, "accounts", selectedItems, entriesToZip);
+                    // 1. Scan external filesDir (Android/data/net.kdt.pojavlaunch/files/)
+                    if (filesDir != null && filesDir.exists()) {
+                        scanFilesDir(filesDir, filesDir, selectedItems, entriesToZip);
                     }
 
-                    // 2. Control maps
-                    if (selectedItems.contains("controlmap") && controlDir.exists()) {
-                        scanFolder(controlDir, "controlmap", selectedItems, entriesToZip);
-                    }
-
-                    // 3. .minecraft items
-                    if (mcDir.exists()) {
-                        File[] mcFiles = mcDir.listFiles();
-                        if (mcFiles != null) {
-                            for (File f : mcFiles) {
-                                String name = f.getName();
-                                if (selectedItems.contains(name) || isSubItemIncluded(name, selectedItems)) {
-                                    if (f.isDirectory()) {
-                                        scanFolder(f, ".minecraft/" + name, selectedItems, entriesToZip);
-                                    } else {
-                                        entriesToZip.add(new BackupEntry(f, ".minecraft/" + name));
+                    // 2. Scan internal accounts if not already captured
+                    if (accountsDir.exists()) {
+                        File[] accs = accountsDir.listFiles();
+                        if (accs != null) {
+                            for (File acc : accs) {
+                                if (acc.isFile()) {
+                                    String relPath = "accounts/" + acc.getName();
+                                    if (selectedItems.contains(relPath) || selectedItems.contains("accounts")) {
+                                        boolean alreadyIn = false;
+                                        for (BackupEntry be : entriesToZip) {
+                                            if (be.zipPath.equals(relPath)) {
+                                                alreadyIn = true;
+                                                break;
+                                            }
+                                        }
+                                        if (!alreadyIn) {
+                                            entriesToZip.add(new BackupEntry(acc, relPath));
+                                        }
                                     }
                                 }
                             }
@@ -150,7 +214,7 @@ public class BackupManager {
                             @Override
                             public void run() {
                                 progressDialog.dismiss();
-                                Toast.makeText(activity, "No files found for selected backup items.", Toast.LENGTH_LONG).show();
+                                Toast.makeText(activity, "No matching files found to backup.", Toast.LENGTH_LONG).show();
                             }
                         });
                         return;
@@ -164,21 +228,21 @@ public class BackupManager {
                     Uri targetZipUri = DocumentsContract.createDocument(activity.getContentResolver(), docUri, "application/zip", zipName);
 
                     if (targetZipUri == null) {
-                        throw new Exception("Failed to create backup file in selected folder.");
+                        throw new Exception("Failed to create backup file in selected directory.");
                     }
 
                     OutputStream os = activity.getContentResolver().openOutputStream(targetZipUri);
                     if (os == null) {
-                        throw new Exception("Unable to open output stream to backup file.");
+                        throw new Exception("Unable to open output stream to backup archive.");
                     }
 
                     ZipOutputStream zos = new ZipOutputStream(os);
                     byte[] buffer = new byte[65536];
-                    int totalFiles = entriesToZip.size();
+                    final int totalFiles = entriesToZip.size();
                     int count = 0;
                     long lastUpdateTime = 0;
 
-                    for (BackupEntry entry : entriesToZip) {
+                    for (final BackupEntry entry : entriesToZip) {
                         count++;
                         ZipEntry ze = new ZipEntry(entry.zipPath);
                         zos.putNextEntry(ze);
@@ -192,16 +256,15 @@ public class BackupManager {
                         zos.closeEntry();
 
                         long now = System.currentTimeMillis();
-                        if (now - lastUpdateTime > 150 || count == totalFiles) {
+                        if (now - lastUpdateTime > 80 || count == totalFiles) {
                             lastUpdateTime = now;
-                            final int currentCount = count;
-                            final int percent = (currentCount * 100) / totalFiles;
-                            final String currentName = entry.file.getName();
+                            final int current = count;
                             activity.runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    progressDialog.setProgress(percent);
-                                    progressDialog.setMessage("Backing up: " + currentName);
+                                    int progress = (int) (((long) current * 100) / totalFiles);
+                                    progressDialog.setProgress(progress);
+                                    progressDialog.setMessage("Backing up (" + current + "/" + totalFiles + "):\n" + entry.file.getName());
                                 }
                             });
                         }
@@ -210,15 +273,15 @@ public class BackupManager {
                     zos.close();
                     os.close();
 
-                    final int finalTotal = totalFiles;
+                    final int finalCount = count;
                     final String finalZipName = zipName;
                     activity.runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
                             progressDialog.dismiss();
                             new AlertDialog.Builder(activity)
-                                    .setTitle("Backup Completed!")
-                                    .setMessage("Successfully created backup archive:\n\nFile: " + finalZipName + "\nFiles backed up: " + finalTotal + "\n\nSaved to selected folder.")
+                                    .setTitle("Backup Complete!")
+                                    .setMessage("Successfully created " + finalZipName + "\n\nTotal files backed up: " + finalCount)
                                     .setPositiveButton("OK", null)
                                     .show();
                         }
@@ -246,11 +309,9 @@ public class BackupManager {
 
         final ProgressDialog progressDialog = new ProgressDialog(activity);
         progressDialog.setTitle("Restoring Backup");
-        progressDialog.setMessage("Reading backup archive...");
-        progressDialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
-        progressDialog.setProgress(0);
-        progressDialog.setMax(100);
-        progressDialog.setIndeterminate(false);
+        progressDialog.setMessage("Extracting files...");
+        progressDialog.setProgressStyle(ProgressDialog.STYLE_SPINNER);
+        progressDialog.setIndeterminate(true);
         progressDialog.setCancelable(false);
         progressDialog.show();
 
@@ -259,13 +320,10 @@ public class BackupManager {
             public void run() {
                 try {
                     File filesDir = activity.getExternalFilesDir(null);
-                    File mcDir = new File(filesDir, ".minecraft");
-                    File controlDir = new File(filesDir, "controlmap");
                     File accountsDir = new File(activity.getFilesDir(), "accounts");
 
-                    accountsDir.mkdirs();
-                    controlDir.mkdirs();
-                    mcDir.mkdirs();
+                    if (filesDir != null && !filesDir.exists()) filesDir.mkdirs();
+                    if (!accountsDir.exists()) accountsDir.mkdirs();
 
                     InputStream is = activity.getContentResolver().openInputStream(zipUri);
                     if (is == null) throw new Exception("Cannot open backup archive.");
@@ -282,33 +340,36 @@ public class BackupManager {
                             continue;
                         }
 
-                        File outFile;
-                        if (name.startsWith("accounts/")) {
-                            outFile = new File(accountsDir, name.substring("accounts/".length()));
-                        } else if (name.startsWith("controlmap/")) {
-                            outFile = new File(controlDir, name.substring("controlmap/".length()));
-                        } else if (name.startsWith(".minecraft/")) {
-                            outFile = new File(mcDir, name.substring(".minecraft/".length()));
-                        } else {
-                            outFile = new File(mcDir, name);
-                        }
-
                         if (ze.isDirectory()) {
-                            outFile.mkdirs();
-                        } else {
-                            File parent = outFile.getParentFile();
-                            if (parent != null && !parent.exists()) parent.mkdirs();
-
-                            FileOutputStream fos = new FileOutputStream(outFile);
-                            int len;
-                            while ((len = zis.read(buffer)) != -1) {
-                                fos.write(buffer, 0, len);
-                            }
-                            fos.close();
-                            count++;
+                            File outDir = new File(filesDir, name);
+                            outDir.mkdirs();
+                            zis.closeEntry();
+                            continue;
                         }
+
+                        File outFile = new File(filesDir, name);
+                        File parent = outFile.getParentFile();
+                        if (parent != null && !parent.exists()) parent.mkdirs();
+
+                        FileOutputStream fos = new FileOutputStream(outFile);
+                        int len;
+                        while ((len = zis.read(buffer)) != -1) {
+                            fos.write(buffer, 0, len);
+                        }
+                        fos.close();
+
+                        // Also mirror accounts to internal accountsDir if in accounts/
+                        if (name.startsWith("accounts/")) {
+                            File internalAcc = new File(activity.getFilesDir(), name);
+                            File internalParent = internalAcc.getParentFile();
+                            if (internalParent != null && !internalParent.exists()) internalParent.mkdirs();
+                            copyFile(outFile, internalAcc);
+                        }
+
+                        count++;
                         zis.closeEntry();
                     }
+
                     zis.close();
                     is.close();
 
@@ -342,24 +403,67 @@ public class BackupManager {
         });
     }
 
-    private static void scanFolder(File dir, String zipPrefix, Set<String> selectedItems, List<BackupEntry> results) {
-        File[] list = dir.listFiles();
+    private static void scanFilesDir(File rootDir, File current, Set<String> selectedItems, List<BackupEntry> results) {
+        File[] list = current.listFiles();
         if (list == null) return;
+
         for (File f : list) {
-            String subPath = zipPrefix + "/" + f.getName();
+            String name = f.getName();
+            // Skip temporary cache / binary libraries
+            if (name.equals(".cache") || name.equals("caciocavallo") || name.equals("caciocavallo17") || name.equals("lwjgl3")) {
+                continue;
+            }
+
+            String relPath = getRelativePath(rootDir, f);
+            if (relPath.startsWith(".minecraft/assets") || relPath.startsWith(".minecraft/libraries") || relPath.startsWith(".minecraft/.fabric")) {
+                continue;
+            }
+
             if (f.isDirectory()) {
-                scanFolder(f, subPath, selectedItems, results);
+                scanFilesDir(rootDir, f, selectedItems, results);
             } else {
-                results.add(new BackupEntry(f, subPath));
+                if (selectedItems.contains(relPath) || isAnyParentSelected(relPath, selectedItems)) {
+                    results.add(new BackupEntry(f, relPath));
+                }
             }
         }
     }
 
-    private static boolean isSubItemIncluded(String name, Set<String> selectedItems) {
-        for (String s : selectedItems) {
-            if (s.startsWith(name + "/")) return true;
+    private static boolean isAnyParentSelected(String relPath, Set<String> selectedPaths) {
+        int idx = relPath.lastIndexOf('/');
+        while (idx != -1) {
+            String parentPath = relPath.substring(0, idx);
+            if (selectedPaths.contains(parentPath)) {
+                return true;
+            }
+            idx = parentPath.lastIndexOf('/');
         }
         return false;
+    }
+
+    private static String getRelativePath(File root, File file) {
+        String rootPath = root.getAbsolutePath();
+        String filePath = file.getAbsolutePath();
+        if (filePath.startsWith(rootPath)) {
+            String sub = filePath.substring(rootPath.length());
+            if (sub.startsWith("/")) sub = sub.substring(1);
+            return sub;
+        }
+        return file.getName();
+    }
+
+    private static void copyFile(File src, File dst) {
+        try {
+            FileInputStream in = new FileInputStream(src);
+            FileOutputStream out = new FileOutputStream(dst);
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = in.read(buf)) != -1) {
+                out.write(buf, 0, len);
+            }
+            in.close();
+            out.close();
+        } catch (Exception ignored) {}
     }
 
     private static class BackupEntry {

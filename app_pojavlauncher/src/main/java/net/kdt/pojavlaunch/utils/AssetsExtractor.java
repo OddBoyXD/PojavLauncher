@@ -160,4 +160,21 @@ public class AssetsExtractor {
             }
         });
     }
+
+    public static void setupAddAssetsButton(final androidx.fragment.app.Fragment fragment) {
+        if (fragment == null) return;
+        android.view.View view = fragment.getView();
+        if (view == null) return;
+        android.view.View btn = view.findViewById(0x7f0a021c);
+        if (btn == null) return;
+        final android.app.Activity activity = fragment.getActivity();
+        if (activity == null) return;
+        btn.setOnClickListener(new android.view.View.OnClickListener() {
+            @Override
+            public void onClick(android.view.View v) {
+                promptPickAssets(activity);
+            }
+        });
+    }
+
 }
