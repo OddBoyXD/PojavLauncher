@@ -10,6 +10,7 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.provider.DocumentsContract;
 import android.provider.Settings;
@@ -20,6 +21,8 @@ import net.kdt.pojavlaunch.Tools;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FilterInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
@@ -162,6 +165,28 @@ public class BackupManager {
         @Override
         public void onClick(DialogInterface dialog, int which) {
             restartApplication(activity);
+        }
+    }
+
+    public static class CountingInputStream extends FilterInputStream {
+        private long bytesRead = 0;
+        public CountingInputStream(InputStream in) {
+            super(in);
+        }
+        @Override
+        public int read() throws IOException {
+            int b = super.read();
+            if (b != -1) bytesRead++;
+            return b;
+        }
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            int r = super.read(b, off, len);
+            if (r != -1) bytesRead += r;
+            return r;
+        }
+        public long getBytesRead() {
+            return bytesRead;
         }
     }
 
@@ -336,6 +361,15 @@ public class BackupManager {
         @Override
         public void run() {
             try {
+                long totalZipBytes = -1;
+                try {
+                    ParcelFileDescriptor pfd = activity.getContentResolver().openFileDescriptor(zipUri, "r");
+                    if (pfd != null) {
+                        totalZipBytes = pfd.getStatSize();
+                        pfd.close();
+                    }
+                } catch (Exception ignored) {}
+
                 File filesDir = null;
                 if (Tools.DIR_GAME_HOME != null) {
                     filesDir = new File(Tools.DIR_GAME_HOME);
@@ -351,12 +385,14 @@ public class BackupManager {
                 if (!accountsDir.exists()) accountsDir.mkdirs();
                 if (!sharedPrefsDir.exists()) sharedPrefsDir.mkdirs();
 
-                InputStream is = activity.getContentResolver().openInputStream(zipUri);
-                if (is == null) throw new Exception("Cannot open backup archive.");
+                InputStream rawIn = activity.getContentResolver().openInputStream(zipUri);
+                if (rawIn == null) throw new Exception("Cannot open backup archive.");
 
-                ZipInputStream zis = new ZipInputStream(is);
+                CountingInputStream countingIn = new CountingInputStream(rawIn);
+                ZipInputStream zis = new ZipInputStream(countingIn);
                 byte[] buffer = new byte[65536];
                 int count = 0;
+                long lastUpdateTime = 0;
                 ZipEntry ze;
 
                 while ((ze = zis.getNextEntry()) != null) {
@@ -401,6 +437,17 @@ public class BackupManager {
                     int len;
                     while ((len = zis.read(buffer)) != -1) {
                         fos.write(buffer, 0, len);
+
+                        long now = System.currentTimeMillis();
+                        if (now - lastUpdateTime > 80) {
+                            lastUpdateTime = now;
+                            final int currentPercent = totalZipBytes > 0
+                                    ? (int) Math.min(100, Math.max(0, (countingIn.getBytesRead() * 100) / totalZipBytes))
+                                    : 0;
+                            final String currentFileName = outFile.getName();
+                            final int currentFilesCount = count;
+                            activity.runOnUiThread(new RestoreProgressUpdateTask(progressDialog, currentPercent, currentFilesCount, currentFileName));
+                        }
                     }
                     fos.close();
 
@@ -417,7 +464,7 @@ public class BackupManager {
                 }
 
                 zis.close();
-                is.close();
+                countingIn.close();
 
                 final int restoredCount = count;
                 activity.runOnUiThread(new RestoreCompleteDialogTask(progressDialog, activity, restoredCount));
@@ -444,6 +491,24 @@ public class BackupManager {
             int progress = (int) (((long) current * 100) / totalFiles);
             progressDialog.setProgress(progress);
             progressDialog.setMessage("Backing up (" + current + "/" + totalFiles + "):\n" + fileName);
+        }
+    }
+
+    public static class RestoreProgressUpdateTask implements Runnable {
+        ProgressDialog progressDialog;
+        int percent;
+        int filesCount;
+        String fileName;
+        public RestoreProgressUpdateTask(ProgressDialog progressDialog, int percent, int filesCount, String fileName) {
+            this.progressDialog = progressDialog;
+            this.percent = percent;
+            this.filesCount = filesCount;
+            this.fileName = fileName;
+        }
+        @Override
+        public void run() {
+            progressDialog.setProgress(percent);
+            progressDialog.setMessage("Restoring (" + percent + "% - " + filesCount + " files):\n" + fileName);
         }
     }
 
@@ -552,9 +617,11 @@ public class BackupManager {
 
         final ProgressDialog progressDialog = new ProgressDialog(activity);
         progressDialog.setTitle("Restoring Backup");
-        progressDialog.setMessage("Extracting files...");
-        progressDialog.setProgressStyle(ProgressDialog.STYLE_SPINNER);
-        progressDialog.setIndeterminate(true);
+        progressDialog.setMessage("Preparing extraction...");
+        progressDialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
+        progressDialog.setProgress(0);
+        progressDialog.setMax(100);
+        progressDialog.setIndeterminate(false);
         progressDialog.setCancelable(false);
         progressDialog.show();
 
