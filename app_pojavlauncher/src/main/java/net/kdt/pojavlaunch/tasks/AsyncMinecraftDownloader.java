@@ -203,8 +203,9 @@ public class AsyncMinecraftDownloader {
 
 
         try {
-            if(assets != null)
+            if(assets != null && !net.kdt.pojavlaunch.fragments.MainMenuFragment.skipAssets)
                 downloadAssets(assets, verInfo.assets, assets.mapToResources ? new File(Tools.OBSOLETE_RESOURCES_PATH) : new File(Tools.ASSETS_PATH));
+            net.kdt.pojavlaunch.fragments.MainMenuFragment.skipAssets = false;
         } catch (Exception e) {
             Log.e("AsyncMcDownloader", e.toString(), e);
             ProgressKeeper.submitProgress(ProgressLayout.DOWNLOAD_MINECRAFT, -1, -1);

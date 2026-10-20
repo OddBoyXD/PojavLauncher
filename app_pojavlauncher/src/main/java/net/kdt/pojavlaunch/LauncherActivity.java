@@ -229,6 +229,10 @@ public class LauncherActivity extends BaseActivity {
         }
         if(requestCode == MultiRTConfigDialog.MULTIRT_PICK_RUNTIME && data != null){
             Tools.installRuntimeFromUri(this, data.getData());
+            return;
+        }
+        if(requestCode == net.kdt.pojavlaunch.utils.AssetsExtractor.REQUEST_PICK_ASSETS_ZIP && data != null && data.getData() != null){
+            net.kdt.pojavlaunch.utils.AssetsExtractor.extractAssetsFromUri(this, data.getData());
         }
     }
 

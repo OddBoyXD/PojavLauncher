@@ -24,6 +24,7 @@ import net.kdt.pojavlaunch.progresskeeper.ProgressKeeper;
 import net.kdt.pojavlaunch.value.launcherprofiles.LauncherProfiles;
 
 public class MainMenuFragment extends Fragment {
+    public static boolean skipAssets = false;
     public static final String TAG = "MainMenuFragment";
 
     private mcVersionSpinner mVersionSpinner;
@@ -55,6 +56,19 @@ public class MainMenuFragment extends Fragment {
         mPlayButton.setOnClickListener(v -> ExtraCore.setValue(ExtraConstants.LAUNCH_GAME, true));
 
         mShareLogsButton.setOnClickListener((v) -> shareLog(requireContext()));
+        Button mSkipPlayButton = view.findViewById(R.id.skip_play_button);
+        if (mSkipPlayButton != null) {
+            mSkipPlayButton.setOnClickListener(v -> {
+                skipAssets = true;
+                ExtraCore.setValue(ExtraConstants.LAUNCH_GAME, true);
+            });
+        }
+
+        Button mAddAssetsButton = view.findViewById(R.id.add_assets_button);
+        if (mAddAssetsButton != null) {
+            mAddAssetsButton.setOnClickListener(v -> net.kdt.pojavlaunch.utils.AssetsExtractor.promptPickAssets(requireActivity()));
+        }
+
 
         mNewsButton.setOnLongClickListener((v)->{
             Tools.swapFragment(requireActivity(), SearchModFragment.class, SearchModFragment.TAG, true, null);
