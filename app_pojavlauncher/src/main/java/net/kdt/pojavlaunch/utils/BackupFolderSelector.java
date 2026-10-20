@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
 import android.view.View;
@@ -40,20 +39,10 @@ public class BackupFolderSelector {
         final FolderNode rootNode = buildRootNode(activity);
         navStack.push(rootNode);
 
-        // Container
         final LinearLayout container = new LinearLayout(activity);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setPadding(24, 16, 24, 12);
 
-        // Notice Bar: Accounts & Settings are auto-backed up
-        final TextView noticeView = new TextView(activity);
-        noticeView.setText("ℹ️ Accounts & Settings are always backed up automatically.");
-        noticeView.setTextSize(12);
-        noticeView.setTextColor(Color.parseColor("#4CAF50"));
-        noticeView.setPadding(4, 0, 4, 10);
-        container.addView(noticeView);
-
-        // Top Navigation Bar
         final LinearLayout topBar = new LinearLayout(activity);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
@@ -73,7 +62,6 @@ public class BackupFolderSelector {
         topBar.addView(backBtn);
         topBar.addView(pathView);
 
-        // Action Buttons Bar (Select All / Deselect All)
         final LinearLayout actionBar = new LinearLayout(activity);
         actionBar.setOrientation(LinearLayout.HORIZONTAL);
         actionBar.setPadding(0, 0, 0, 10);
@@ -89,10 +77,9 @@ public class BackupFolderSelector {
         actionBar.addView(selectAllBtn);
         actionBar.addView(deselectAllBtn);
 
-        // Items List
         final ListView listView = new ListView(activity);
         listView.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
-        listView.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 860));
+        listView.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 880));
 
         container.addView(topBar);
         container.addView(actionBar);
@@ -101,203 +88,273 @@ public class BackupFolderSelector {
         final SelectorAdapter adapter = new SelectorAdapter(activity, navStack.peek().children, selectedPaths);
         listView.setAdapter(adapter);
 
-        final Runnable updateUI = new Runnable() {
-            @Override
-            public void run() {
-                FolderNode current = navStack.peek();
-                backBtn.setEnabled(navStack.size() > 1);
-                pathView.setText(current.displayPath);
-                adapter.updateItems(current.children);
-            }
-        };
+        final UIController controller = new UIController(activity, navStack, backBtn, pathView, adapter);
 
-        backBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (navStack.size() > 1) {
-                    navStack.pop();
-                    updateUI.run();
-                }
-            }
-        });
-
-        selectAllBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                FolderNode current = navStack.peek();
-                if (current.children != null) {
-                    for (FolderNode child : current.children) {
-                        selectRecursively(child, selectedPaths);
-                    }
-                }
-                adapter.notifyDataSetChanged();
-            }
-        });
-
-        deselectAllBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                FolderNode current = navStack.peek();
-                if (current.children != null) {
-                    for (FolderNode child : current.children) {
-                        deselectRecursively(child, selectedPaths);
-                    }
-                }
-                adapter.notifyDataSetChanged();
-            }
-        });
-
-        adapter.setOnNodeClickListener(new NodeClickListener() {
-            @Override
-            public void onNodeClicked(FolderNode node) {
-                if (node.isDir) {
-                    if (node.children != null && !node.children.isEmpty()) {
-                        navStack.push(node);
-                        updateUI.run();
-                    } else {
-                        Toast.makeText(activity, "Folder is empty (" + node.name + ")", Toast.LENGTH_SHORT).show();
-                    }
-                }
-            }
-        });
+        backBtn.setOnClickListener(new BackBtnListener(navStack, controller));
+        selectAllBtn.setOnClickListener(new SelectAllBtnListener(navStack, selectedPaths, adapter));
+        deselectAllBtn.setOnClickListener(new DeselectAllBtnListener(navStack, selectedPaths, adapter));
+        adapter.setOnNodeClickListener(new ItemClickListener(activity, navStack, controller));
 
         AlertDialog.Builder builder = new AlertDialog.Builder(activity);
         builder.setTitle("Select Files & Folders to Backup");
         builder.setView(container);
-        builder.setPositiveButton("Save Selection", new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                BackupManager.saveSelectedItems(activity, selectedPaths);
-                Toast.makeText(activity, "Selection saved (" + selectedPaths.size() + " items chosen)", Toast.LENGTH_SHORT).show();
-            }
-        });
+        builder.setPositiveButton("Save Selection", new SaveBtnListener(activity, selectedPaths));
         builder.setNegativeButton("Cancel", null);
         builder.show();
     }
 
-    public static void selectRecursively(FolderNode node, Set<String> selected) {
+    public static class UIController {
+        Activity activity;
+        Stack<FolderNode> navStack;
+        Button backBtn;
+        TextView pathView;
+        SelectorAdapter adapter;
+
+        public UIController(Activity activity, Stack<FolderNode> navStack, Button backBtn, TextView pathView, SelectorAdapter adapter) {
+            this.activity = activity;
+            this.navStack = navStack;
+            this.backBtn = backBtn;
+            this.pathView = pathView;
+            this.adapter = adapter;
+        }
+
+        public void updateUI() {
+            FolderNode current = navStack.peek();
+            backBtn.setEnabled(navStack.size() > 1);
+            pathView.setText(current.displayPath);
+            if (current.children == null) {
+                current.children = loadDirectChildren(current);
+            }
+            adapter.updateItems(current.children);
+        }
+    }
+
+    public static class BackBtnListener implements View.OnClickListener {
+        Stack<FolderNode> navStack;
+        UIController controller;
+        public BackBtnListener(Stack<FolderNode> navStack, UIController controller) {
+            this.navStack = navStack;
+            this.controller = controller;
+        }
+        @Override
+        public void onClick(View v) {
+            if (navStack.size() > 1) {
+                navStack.pop();
+                controller.updateUI();
+            }
+        }
+    }
+
+    public static class SelectAllBtnListener implements View.OnClickListener {
+        Stack<FolderNode> navStack;
+        Set<String> selectedPaths;
+        SelectorAdapter adapter;
+        public SelectAllBtnListener(Stack<FolderNode> navStack, Set<String> selectedPaths, SelectorAdapter adapter) {
+            this.navStack = navStack;
+            this.selectedPaths = selectedPaths;
+            this.adapter = adapter;
+        }
+        @Override
+        public void onClick(View v) {
+            FolderNode current = navStack.peek();
+            if (current.children == null) {
+                current.children = loadDirectChildren(current);
+            }
+            if (current.children != null) {
+                for (FolderNode child : current.children) {
+                    checkNode(child, selectedPaths);
+                }
+            }
+            adapter.notifyDataSetChanged();
+        }
+    }
+
+    public static class DeselectAllBtnListener implements View.OnClickListener {
+        Stack<FolderNode> navStack;
+        Set<String> selectedPaths;
+        SelectorAdapter adapter;
+        public DeselectAllBtnListener(Stack<FolderNode> navStack, Set<String> selectedPaths, SelectorAdapter adapter) {
+            this.navStack = navStack;
+            this.selectedPaths = selectedPaths;
+            this.adapter = adapter;
+        }
+        @Override
+        public void onClick(View v) {
+            FolderNode current = navStack.peek();
+            if (current.children == null) {
+                current.children = loadDirectChildren(current);
+            }
+            if (current.children != null) {
+                for (FolderNode child : current.children) {
+                    uncheckNode(child, selectedPaths);
+                }
+            }
+            adapter.notifyDataSetChanged();
+        }
+    }
+
+    public static class ItemClickListener implements NodeClickListener {
+        Activity activity;
+        Stack<FolderNode> navStack;
+        UIController controller;
+        public ItemClickListener(Activity activity, Stack<FolderNode> navStack, UIController controller) {
+            this.activity = activity;
+            this.navStack = navStack;
+            this.controller = controller;
+        }
+        @Override
+        public void onNodeClicked(FolderNode node) {
+            if (node.isDir) {
+                if (node.children == null) {
+                    node.children = loadDirectChildren(node);
+                }
+                if (!node.children.isEmpty()) {
+                    navStack.push(node);
+                    controller.updateUI();
+                } else {
+                    Toast.makeText(activity, "Folder is empty (" + node.name + ")", Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
+    }
+
+    public static class SaveBtnListener implements DialogInterface.OnClickListener {
+        Activity activity;
+        Set<String> selectedPaths;
+        public SaveBtnListener(Activity activity, Set<String> selectedPaths) {
+            this.activity = activity;
+            this.selectedPaths = selectedPaths;
+        }
+        @Override
+        public void onClick(DialogInterface dialog, int which) {
+            BackupManager.saveSelectedItems(activity, selectedPaths);
+            Toast.makeText(activity, "Selection saved (" + selectedPaths.size() + " items chosen)", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    public static boolean isNodeChecked(FolderNode node, Set<String> selected) {
+        if (node == null) return false;
+        if (selected.contains(node.relPath)) return true;
+        FolderNode p = node.parent;
+        while (p != null) {
+            if (selected.contains(p.relPath)) return true;
+            p = p.parent;
+        }
+        return false;
+    }
+
+    public static void checkNode(FolderNode node, Set<String> selected) {
         if (node == null) return;
         selected.add(node.relPath);
         if (node.children != null) {
             for (FolderNode child : node.children) {
-                selectRecursively(child, selected);
+                checkNode(child, selected);
             }
         }
-        checkParentSelection(node.parent, selected);
+        checkParentRollup(node.parent, selected);
     }
 
-    public static void deselectRecursively(FolderNode node, Set<String> selected) {
+    public static void uncheckNode(FolderNode node, Set<String> selected) {
         if (node == null) return;
         selected.remove(node.relPath);
         if (node.children != null) {
             for (FolderNode child : node.children) {
-                deselectRecursively(child, selected);
+                uncheckNode(child, selected);
             }
         }
         FolderNode p = node.parent;
+        FolderNode childToExclude = node;
         while (p != null) {
-            selected.remove(p.relPath);
+            if (selected.remove(p.relPath)) {
+                if (p.children != null) {
+                    for (FolderNode sibling : p.children) {
+                        if (!sibling.relPath.equals(childToExclude.relPath)) {
+                            checkNode(sibling, selected);
+                        }
+                    }
+                }
+            }
+            childToExclude = p;
             p = p.parent;
         }
     }
 
-    private static void checkParentSelection(FolderNode parent, Set<String> selected) {
+    private static void checkParentRollup(FolderNode parent, Set<String> selected) {
         if (parent == null || parent.relPath == null || parent.relPath.isEmpty()) return;
-        boolean allSelected = true;
         if (parent.children != null && !parent.children.isEmpty()) {
+            boolean allSelected = true;
             for (FolderNode child : parent.children) {
-                if (!selected.contains(child.relPath)) {
+                if (!isNodeChecked(child, selected)) {
                     allSelected = false;
                     break;
                 }
             }
-        }
-        if (allSelected) {
-            selected.add(parent.relPath);
-            checkParentSelection(parent.parent, selected);
+            if (allSelected) {
+                selected.add(parent.relPath);
+                checkParentRollup(parent.parent, selected);
+            }
         }
     }
 
     private static FolderNode buildRootNode(Context context) {
-        FolderNode root = new FolderNode("Root", "", true, "files/");
-        root.children = new ArrayList<FolderNode>();
+        File filesDir = null;
+        if (Tools.DIR_GAME_HOME != null) {
+            filesDir = new File(Tools.DIR_GAME_HOME);
+        }
+        if (filesDir == null || !filesDir.exists()) {
+            filesDir = context.getExternalFilesDir(null);
+        }
 
-        try {
-            File filesDir = null;
-            if (Tools.DIR_GAME_HOME != null) {
-                filesDir = new File(Tools.DIR_GAME_HOME);
-            }
-            if (filesDir == null || !filesDir.exists()) {
-                filesDir = context.getExternalFilesDir(null);
-            }
-
-            if (filesDir != null && filesDir.exists()) {
-                File[] rootFiles = filesDir.listFiles();
-                if (rootFiles != null) {
-                    for (File f : rootFiles) {
-                        String name = f.getName();
-                        if (name.equals(".cache")) continue;
-                        FolderNode node = scanNode(f, name, name, root, 0);
-                        root.children.add(node);
-                    }
-                }
-            }
-        } catch (Exception ignored) {}
-
-        sortNodes(root.children);
+        FolderNode root = new FolderNode("Root", filesDir, "", true, "files/", 0, null);
+        root.children = loadDirectChildren(root);
         return root;
     }
 
-    private static FolderNode scanNode(File file, String relPath, String displayPath, FolderNode parent, int depth) {
-        boolean isDir = file.isDirectory();
-        long size = 0;
-        try {
-            size = isDir ? 0 : file.length();
-        } catch (Exception ignored) {}
-
-        FolderNode node = new FolderNode(file.getName(), relPath, isDir, displayPath, size, parent);
-
-        if (isDir) {
-            node.children = new ArrayList<FolderNode>();
-            if (depth > 12) {
-                return node;
-            }
-
-            try {
-                File[] sub = file.listFiles();
-                if (sub != null) {
-                    for (File sf : sub) {
-                        String subName = sf.getName();
-                        // Skip static assets & libraries so it doesn't clutter list with 100k internal hash files
-                        if (relPath.equals(".minecraft") && (subName.equals("assets") || subName.equals("libraries") || subName.equals(".fabric") || subName.equals("logs"))) {
-                            continue;
-                        }
-                        String childRel = relPath + "/" + subName;
-                        String childDisplay = displayPath + " / " + subName;
-                        node.children.add(scanNode(sf, childRel, childDisplay, node, depth + 1));
-                    }
-                    sortNodes(node.children);
-                }
-            } catch (Exception ignored) {}
+    public static List<FolderNode> loadDirectChildren(FolderNode parentNode) {
+        List<FolderNode> list = new ArrayList<FolderNode>();
+        if (parentNode == null || parentNode.file == null || !parentNode.file.isDirectory()) {
+            return list;
         }
 
-        return node;
+        try {
+            File[] files = parentNode.file.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    String name = f.getName();
+                    if (name.equals(".cache")) continue;
+
+                    boolean isDir = f.isDirectory();
+                    String rel = parentNode.relPath.isEmpty() ? name : parentNode.relPath + "/" + name;
+                    String disp = parentNode.displayPath + (parentNode.displayPath.endsWith("/") ? "" : "/") + name;
+                    long size = isDir ? 0 : f.length();
+
+                    FolderNode child = new FolderNode(name, f, rel, isDir, disp, size, parentNode);
+                    list.add(child);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        sortNodes(list);
+        return list;
+    }
+
+    public static class NodeComparator implements Comparator<FolderNode> {
+        @Override
+        public int compare(FolderNode o1, FolderNode o2) {
+            if (o1.isDir && !o2.isDir) return -1;
+            if (!o1.isDir && o2.isDir) return 1;
+            return o1.name.compareToIgnoreCase(o2.name);
+        }
     }
 
     private static void sortNodes(List<FolderNode> list) {
         if (list == null) return;
-        Collections.sort(list, new Comparator<FolderNode>() {
-            @Override
-            public int compare(FolderNode o1, FolderNode o2) {
-                if (o1.isDir && !o2.isDir) return -1;
-                if (!o1.isDir && o2.isDir) return 1;
-                return o1.name.compareToIgnoreCase(o2.name);
-            }
-        });
+        Collections.sort(list, new NodeComparator());
     }
 
     public static class FolderNode {
         public String name;
+        public File file;
         public String relPath;
         public boolean isDir;
         public String displayPath;
@@ -305,12 +362,9 @@ public class BackupFolderSelector {
         public FolderNode parent;
         public List<FolderNode> children;
 
-        public FolderNode(String name, String relPath, boolean isDir, String displayPath) {
-            this(name, relPath, isDir, displayPath, 0, null);
-        }
-
-        public FolderNode(String name, String relPath, boolean isDir, String displayPath, long sizeBytes, FolderNode parent) {
+        public FolderNode(String name, File file, String relPath, boolean isDir, String displayPath, long sizeBytes, FolderNode parent) {
             this.name = name;
+            this.file = file;
             this.relPath = relPath;
             this.isDir = isDir;
             this.displayPath = displayPath;
@@ -320,8 +374,11 @@ public class BackupFolderSelector {
 
         public String getSubtitle() {
             if (isDir) {
-                int count = children != null ? children.size() : 0;
-                return count + " item" + (count == 1 ? "" : "s");
+                if (children != null) {
+                    int count = children.size();
+                    return count + " item" + (count == 1 ? "" : "s");
+                }
+                return "Folder";
             }
             if (sizeBytes < 1024) return sizeBytes + " B";
             if (sizeBytes < 1048576) return String.format(java.util.Locale.US, "%.1f KB", sizeBytes / 1024.0);
@@ -331,6 +388,45 @@ public class BackupFolderSelector {
 
     public interface NodeClickListener {
         void onNodeClicked(FolderNode node);
+    }
+
+    public static class RowCheckedListener implements CompoundButton.OnCheckedChangeListener {
+        FolderNode node;
+        Set<String> selectedPaths;
+        SelectorAdapter adapter;
+
+        public RowCheckedListener(FolderNode node, Set<String> selectedPaths, SelectorAdapter adapter) {
+            this.node = node;
+            this.selectedPaths = selectedPaths;
+            this.adapter = adapter;
+        }
+
+        @Override
+        public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+            if (isChecked) {
+                checkNode(node, selectedPaths);
+            } else {
+                uncheckNode(node, selectedPaths);
+            }
+            adapter.notifyDataSetChanged();
+        }
+    }
+
+    public static class RowClickListener implements View.OnClickListener {
+        FolderNode node;
+        NodeClickListener clickListener;
+
+        public RowClickListener(FolderNode node, NodeClickListener clickListener) {
+            this.node = node;
+            this.clickListener = clickListener;
+        }
+
+        @Override
+        public void onClick(View v) {
+            if (clickListener != null && node.isDir) {
+                clickListener.onNodeClicked(node);
+            }
+        }
     }
 
     private static class SelectorAdapter extends BaseAdapter {
@@ -426,36 +522,16 @@ public class BackupFolderSelector {
             title.setText((node.isDir ? "📁 " : "📄 ") + node.name);
             subtitle.setText(node.getSubtitle());
 
-            boolean hasChildren = node.isDir && node.children != null && !node.children.isEmpty();
-            openBtn.setVisibility(hasChildren ? View.VISIBLE : View.GONE);
+            openBtn.setVisibility(node.isDir ? View.VISIBLE : View.GONE);
 
             cb.setOnCheckedChangeListener(null);
-            cb.setChecked(selectedPaths.contains(node.relPath));
+            cb.setChecked(isNodeChecked(node, selectedPaths));
+            cb.setOnCheckedChangeListener(new RowCheckedListener(node, selectedPaths, this));
 
-            cb.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-                @Override
-                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
-                    if (isChecked) {
-                        selectRecursively(node, selectedPaths);
-                    } else {
-                        deselectRecursively(node, selectedPaths);
-                    }
-                    notifyDataSetChanged();
-                }
-            });
-
-            View.OnClickListener openFolderListener = new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (clickListener != null && node.isDir) {
-                        clickListener.onNodeClicked(node);
-                    }
-                }
-            };
-
-            openBtn.setOnClickListener(openFolderListener);
-            textLayout.setOnClickListener(openFolderListener);
-            row.setOnClickListener(openFolderListener);
+            RowClickListener clickListenerInstance = new RowClickListener(node, clickListener);
+            openBtn.setOnClickListener(clickListenerInstance);
+            textLayout.setOnClickListener(clickListenerInstance);
+            row.setOnClickListener(clickListenerInstance);
 
             return row;
         }
