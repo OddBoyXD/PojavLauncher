@@ -6,8 +6,14 @@ import android.app.ProgressDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
 import android.os.ParcelFileDescriptor;
+import android.provider.Settings;
+import android.view.View;
 import android.widget.Toast;
+
+import androidx.fragment.app.Fragment;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -20,7 +26,38 @@ public class AssetsExtractor {
 
     public static final int REQUEST_PICK_ASSETS_ZIP = 42069;
 
-    public static void promptPickAssets(Activity activity) {
+    public static void promptPickAssets(final Activity activity) {
+        if (activity == null) return;
+
+        // Check All Files Access permission on Android 11+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                new AlertDialog.Builder(activity)
+                        .setTitle("Storage Permission Required")
+                        .setMessage("PojavLauncher needs 'All files access' permission to import and extract asset packs.\n\nPlease enable 'Allow access to manage all files' for PojavLauncher in the next screen.")
+                        .setPositiveButton("Grant Access", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                try {
+                                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                                    intent.setData(Uri.parse("package:" + activity.getPackageName()));
+                                    activity.startActivity(intent);
+                                } catch (Exception e) {
+                                    try {
+                                        Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                                        activity.startActivity(intent);
+                                    } catch (Exception ex) {
+                                        Toast.makeText(activity, "Cannot open permission settings: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
+                                    }
+                                }
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+                return;
+            }
+        }
+
         try {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -33,7 +70,13 @@ public class AssetsExtractor {
             });
             activity.startActivityForResult(intent, REQUEST_PICK_ASSETS_ZIP);
         } catch (Exception e) {
-            Toast.makeText(activity, "Error opening file picker: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            try {
+                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.setType("*/*");
+                activity.startActivityForResult(intent, REQUEST_PICK_ASSETS_ZIP);
+            } catch (Exception ex) {
+                Toast.makeText(activity, "Error opening file picker: " + ex.getMessage(), Toast.LENGTH_SHORT).show();
+            }
         }
     }
 
@@ -65,8 +108,9 @@ public class AssetsExtractor {
                     } catch (Exception ignored) {}
 
                     File filesDir = activity.getExternalFilesDir(null);
-                    File destBase = new File(filesDir, ".minecraft");
-                    destBase.mkdirs();
+                    File mcDir = new File(filesDir, ".minecraft");
+                    File assetsDir = new File(mcDir, "assets");
+                    assetsDir.mkdirs();
 
                     InputStream rawIn = activity.getContentResolver().openInputStream(uri);
                     if (rawIn == null) {
@@ -87,12 +131,16 @@ public class AssetsExtractor {
                         }
 
                         // Normalise path so it lands in .minecraft/assets/
-                        String targetRelPath = name;
-                        if (name.startsWith("indexes/") || name.startsWith("objects/")) {
-                            targetRelPath = "assets/" + name;
+                        String targetRelPath;
+                        if (name.startsWith(".minecraft/assets/")) {
+                            targetRelPath = name.substring(".minecraft/assets/".length());
+                        } else if (name.startsWith("assets/")) {
+                            targetRelPath = name.substring("assets/".length());
+                        } else {
+                            targetRelPath = name;
                         }
 
-                        File outFile = new File(destBase, targetRelPath);
+                        File outFile = new File(assetsDir, targetRelPath);
                         if (entry.isDirectory()) {
                             outFile.mkdirs();
                         } else {
@@ -108,7 +156,7 @@ public class AssetsExtractor {
                                 bytesRead += len;
 
                                 long now = System.currentTimeMillis();
-                                if (now - lastUpdateTime > 200) {
+                                if (now - lastUpdateTime > 100) {
                                     lastUpdateTime = now;
                                     final int percent = totalBytes > 0
                                             ? (int) Math.min(100, Math.max(0, (bytesRead * 100) / totalBytes))
@@ -161,20 +209,21 @@ public class AssetsExtractor {
         });
     }
 
-    public static void setupAddAssetsButton(final androidx.fragment.app.Fragment fragment) {
+    public static void setupAddAssetsButton(final Fragment fragment) {
         if (fragment == null) return;
-        android.view.View view = fragment.getView();
-        if (view == null) return;
-        android.view.View btn = view.findViewById(0x7f0a021c);
-        if (btn == null) return;
-        final android.app.Activity activity = fragment.getActivity();
+        final Activity activity = fragment.getActivity();
         if (activity == null) return;
-        btn.setOnClickListener(new android.view.View.OnClickListener() {
-            @Override
-            public void onClick(android.view.View v) {
-                promptPickAssets(activity);
-            }
-        });
-    }
+        View view = fragment.getView();
+        if (view == null) return;
 
+        View btn = view.findViewById(0x7f0a021c); // add_assets_button
+        if (btn != null) {
+            btn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    promptPickAssets(activity);
+                }
+            });
+        }
+    }
 }
